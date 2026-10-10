@@ -18,8 +18,10 @@ jobs:
       - uses: gradle/actions/setup-gradle@v6
         with:
           gradle-version: '8.11.1'
+      - name: Set up Android SDK command-line tools
+        uses: android-actions/setup-android@v4
       - name: Install SDK packages
-        run: sdkmanager 'platforms;android-35' 'build-tools;35.0.0'
+        run: sdkmanager --install "platforms;android-35" "build-tools;35.0.0"
       - name: Compile app, run unit tests, compile device tests
         run: gradle --no-daemon :app:testDebugUnitTest :app:assembleDebug :app:assembleDebugAndroidTest
       - name: Upload debug APK and JVM test results
