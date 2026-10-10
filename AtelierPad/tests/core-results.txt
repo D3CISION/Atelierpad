@@ -1,0 +1,30 @@
+PASS blank project archive round-trip
+PASS stroke metadata and pressure round-trip
+PASS asset round-trip + sha256
+PASS custom brush asset round-trip
+PASS missing asset rejected
+PASS zip traversal rejected
+PASS bad magic rejected
+PASS future format rejected
+PASS truncated archive rejected
+PASS NaN brush rejected
+PASS infinite sample rejected
+PASS invalid canvas rejected
+PASS invalid layer opacity rejected
+PASS duplicate operation ids rejected
+PASS undo redo and branch truncation
+PASS bounded undo history
+PASS seeded brush replay is deterministic
+PASS pressure increases width
+PASS event batching does not change unsmoothed spacing
+PASS stationary stylus produces one dot
+PASS PDF A4 landscape preserves aspect and margins
+PASS PDF A3 portrait
+PASS PDF physical canvas size
+PASS PDF invalid margin rejected
+PASS flood fill does not cross contour
+PASS transparent hidden RGB is ignored
+PASS large fill is iterative
+PASS fill tolerance is bounded
+
+28 core tests passed; Android device/instrumentation tests are separate.
