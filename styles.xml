@@ -1,0 +1,12 @@
+<resources>
+    <style name="Theme.AtelierPad" parent="android:style/Theme.Material.NoActionBar">
+        <item name="android:fontFamily">sans</item>
+        <item name="android:colorAccent">#91E1C3</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowLightNavigationBar">false</item>
+        <item name="android:statusBarColor">#1C2129</item>
+        <item name="android:navigationBarColor">#1C2129</item>
+        <item name="android:windowActionModeOverlay">true</item>
+        <item name="android:windowBackground">#13171D</item>
+    </style>
+</resources>
