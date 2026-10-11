@@ -1,0 +1,3 @@
+PASS parsed 32 Android XML files
+PASS all 21 Kotlin drawable references resolve
+PASS rasterized 29 toolbar vector paths with SVG parser (not Android inflation)

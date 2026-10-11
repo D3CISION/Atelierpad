@@ -1,0 +1,5 @@
+PASS parsed workflow and syntax-checked 4 bash steps
+PASS project detection: .
+PASS project detection: AtelierPad
+PASS missing project fails explicitly
+PASS absent signing secret requires no key or repository changes

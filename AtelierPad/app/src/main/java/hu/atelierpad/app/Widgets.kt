@@ -26,6 +26,20 @@ fun Context.button(text:String,primary:Boolean=false,action:()->Unit)=label(text
     background=RippleDrawable(ColorStateList.valueOf(0x22666666),rounded(if(primary)Theme.accent else Theme.card,dp(10).toFloat()),null)
     isClickable=true;isFocusable=true;contentDescription=text;setOnClickListener{action()}
 }
+/** Vector pictograms, real 48dp targets, ripple feedback and accessible long-press labels. */
+fun Context.iconButton(icon:Int,title:String,primary:Boolean=false,action:()->Unit)=ImageButton(this).apply {
+    setImageResource(icon);scaleType=ImageView.ScaleType.CENTER_INSIDE
+    setPadding(dp(13),dp(13),dp(13),dp(13));minimumWidth=dp(48);minimumHeight=dp(48)
+    contentDescription=title;tooltipText=title;isFocusable=true
+    imageTintList=ColorStateList.valueOf(if(primary)Theme.bg else Theme.ink)
+    background=RippleDrawable(ColorStateList.valueOf(0x337fa99a),rounded(if(primary)Theme.accent else Theme.card,dp(13).toFloat()),null)
+    setOnClickListener {action()}
+}
+fun Context.styleIcon(button:ImageButton,active:Boolean) {
+    button.imageTintList=ColorStateList.valueOf(if(active)Theme.bg else Theme.ink)
+    button.background=RippleDrawable(ColorStateList.valueOf(0x337fa99a),rounded(if(active)Theme.accent else Theme.card,dp(13).toFloat()),null)
+    button.isSelected=active
+}
 fun Context.column(padding:Int=0)=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(padding),dp(padding),dp(padding),dp(padding))}
 fun Context.row()=LinearLayout(this).apply{orientation=LinearLayout.HORIZONTAL;gravity=Gravity.CENTER_VERTICAL}
 fun LinearLayout.gap(n:Int) {addView(View(context),LinearLayout.LayoutParams(1,context.dp(n)))}
@@ -54,13 +68,36 @@ fun Context.edit(text:String,hint:String="")=EditText(this).apply {
     backgroundTintList=ColorStateList.valueOf(Theme.accent);minHeight=dp(48)
 }
 class BrushPreview(context:Context,private val assets:AssetStore,private val brush:()->Brush,private val color:()->Int):View(context) {
+    private var bitmap:Bitmap?=null
+    private var cachedBrush:Brush?=null
+    private var cachedColor=0
+    private val paint=Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
     override fun onDraw(canvas:Canvas) {
-        canvas.drawColor(Color.rgb(235,233,225))
-        if(width==0 || height==0)return
-        val spec=brush().copy(size=min(brush().size,context.dp(28).toFloat()),smoothing=0f)
-        val points=(0..70).map {i->val t=i/70f;Sample(width*(.08f+t*.84f),height*(.5f+sin(t*PI*2).toFloat()*.18f),.15f+.85f*sin(t*PI).toFloat())}
-        val op=Operation.Stroke(brush=spec,color=color(),eraser=false,alphaLock=false,mirrored=false,seed=7,samples=points)
-        RasterRenderer(assets).use{it.renderOperation(canvas,Project(width=320,height=100),op)}
+        if(width<=0 || height<=0)return
+        val spec=brush().copy(size=min(brush().size,context.dp(28).toFloat()))
+        val ink=color()
+        var image=bitmap
+        if(image==null || image.width!=width || image.height!=height || spec!=cachedBrush || ink!=cachedColor) {
+            image=Bitmap.createBitmap(width,height,Bitmap.Config.ARGB_8888)
+            val target=Canvas(image);target.drawColor(Color.rgb(239,237,230))
+            val points=(0..90).map {i->val t=i/90f;Sample(width*(.08f+t*.84f),height*(.5f+sin(t*PI*2).toFloat()*.18f),.10f+.90f*sin(t*PI).toFloat(),i*5L)}
+            val op=Operation.Stroke(brush=spec,color=ink,eraser=false,alphaLock=false,mirrored=false,seed=7,samples=points)
+            RasterRenderer(assets).use{it.renderOperation(target,Project(width=width,height=height),op)}
+            bitmap=image;cachedBrush=spec;cachedColor=ink
+        }
+        canvas.drawBitmap(requireNotNull(image),0f,0f,paint)
+    }
+    override fun onDetachedFromWindow() {bitmap=null;super.onDetachedFromWindow()}
+}
+/** Thumbnail reuses the real layer cache. It is refreshed on commits, never on every pen packet. */
+class LayerThumbnail(context:Context,private val renderer:RasterRenderer,private val project:()->Project,private val layerId:String):View(context) {
+    private val paint=Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
+    override fun onDraw(canvas:Canvas) {
+        val p=project();val layer=p.layers.firstOrNull {it.id==layerId} ?: return
+        canvas.drawColor(Color.rgb(218,221,225))
+        val scale=min(width.toFloat()/p.width,height.toFloat()/p.height)
+        val w=p.width*scale;val h=p.height*scale
+        canvas.drawBitmap(renderer.layer(p,layer),null,RectF((width-w)/2,(height-h)/2,(width+w)/2,(height+h)/2),paint)
     }
 }
 class ColorField(context:Context,initial:Int,private val selected:(Int)->Unit):View(context) {

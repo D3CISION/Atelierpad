@@ -26,5 +26,36 @@ PASS flood fill does not cross contour
 PASS transparent hidden RGB is ignored
 PASS large fill is iterative
 PASS fill tolerance is bounded
+PASS v1 archive reads with frozen renderer
+PASS v1 stamp geometry and alpha exactly preserved
+PASS v1 project round trips through v2 without changing old strokes
+PASS mixed v1 and v2 strokes round trip
+PASS new flow and pressure smoothing brush settings round trip
+PASS clipping metadata round trip
+PASS every blending mode round trips
+PASS legacy blending mode ordinal values unchanged
+PASS v2 document version marker
+PASS finished curve ends at pen-up position
+PASS midpoint curve rounds an abrupt corner
+PASS stroke finish is idempotent
+PASS input after finished stroke is rejected
+PASS finish without input creates a single dot
+PASS stroke opacity does not compound into dab alpha
+PASS solid ink uses full coverage for a smooth single-opacity surface
+PASS paint flow increases deposited alpha
+PASS flow normalization remains consistent at different spacing
+PASS pressure smoothing damps an abrupt sensor jump
+PASS adaptive smoothing reduces low-speed jitter
+PASS thin slow strokes remain finite and connected
+PASS one pixel long stroke has a bounded dab count
+PASS repeated sample timestamps remain finite
+PASS negative sample time rejected
+PASS out of range flow rejected
+PASS nonfinite pressure smoothing rejected
+PASS future stroke engine rejected
+PASS solid ink branch excludes scatter and pressure-opacity brushes
+PASS every bundled brush is valid
+PASS clipping toggle is undoable
+PASS mixed engine undo history keeps version identifiers
 
-28 core tests passed; Android device/instrumentation tests are separate.
+59 core tests passed; Android device/instrumentation tests are separate.

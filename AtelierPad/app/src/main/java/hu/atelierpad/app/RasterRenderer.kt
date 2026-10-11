@@ -5,18 +5,32 @@ import hu.atelierpad.core.*
 import kotlin.math.*
 import java.util.Random
 
-/** CPU bitmap stamp rasterizer, presented by a hardware-accelerated Android View. */
+/** CPU raster layers with a separate live stroke surface and hardware-accelerated View composition. */
 class RasterRenderer(private val assets:AssetStore) : AutoCloseable {
     private data class Cached(val operations:List<Operation>,val bitmap:Bitmap)
+    private data class ClipCache(val source:Layer,val generation:Long,val bitmap:Bitmap)
     private val layers=LinkedHashMap<String,Cached>(16,.75f,true)
     private val tips=LinkedHashMap<String,Bitmap>(16,.75f,true)
+    private val clipMasks=LinkedHashMap<String,ClipCache>(4,.75f,true)
     private var dimensions=""
     private val layerBudget=(Runtime.getRuntime().maxMemory()/4).coerceAtMost(144L*1024*1024)
+    private val bitmapPaint=Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
+    private val layerPaint=Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
+    private val maskPaint=Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG).apply { blendMode=BlendMode.DST_IN }
+    private var replayBuffer:Bitmap?=null
     var transientLayerId:String?=null; private set
-    private var transientBitmap:Bitmap?=null
+    private var liveOp:Operation.Stroke?=null
+    private var liveBase:Bitmap?=null
+    private var liveInk:Bitmap?=null
+    private var liveCanvas:Canvas?=null
+    private var livePainter:DabPainter?=null
+    private var liveComposite:Bitmap?=null
+    private var liveDirty=true
+    private var generation=0L
+
     fun layer(p:Project,l:Layer):Bitmap {
         checkDimensions(p)
-        if(l.id==transientLayerId) return transientBitmap!!
+        if(l.id==transientLayerId) return resolveLive()
         val old=layers[l.id]
         if(old!=null && old.operations===l.operations) return old.bitmap
         val b=old?.bitmap ?: Bitmap.createBitmap(p.width,p.height,Bitmap.Config.ARGB_8888)
@@ -38,38 +52,121 @@ class RasterRenderer(private val assets:AssetStore) : AutoCloseable {
             if(e.key!=keep) {bytes-=e.value.bitmap.allocationByteCount;iterator.remove()}
         }
     }
-    fun begin(p:Project,l:Layer) {
-        check(transientBitmap==null)
-        transientBitmap=layer(p,l).copy(Bitmap.Config.ARGB_8888,true)
-        transientLayerId=l.id
+    fun begin(p:Project,l:Layer,op:Operation.Stroke) {
+        check(transientLayerId==null)
+        val base=layer(p,l)
+        liveBase=base;liveOp=op;transientLayerId=l.id
+        liveInk=Bitmap.createBitmap(p.width,p.height,Bitmap.Config.ARGB_8888)
+        liveCanvas=Canvas(requireNotNull(liveInk));livePainter=DabPainter(op)
+        liveComposite=null;liveDirty=true;generation++
     }
     fun liveStamp(p:Project,op:Operation.Stroke,s:Stamp) {
-        val b=transientBitmap ?: return
-        drawStamp(Canvas(b),op,s)
-        if(op.mirrored) drawStamp(Canvas(b),op,s.copy(x=p.width-s.x,angle=-s.angle))
+        val c=liveCanvas ?: return
+        val painter=livePainter ?: return
+        painter.draw(c,s,false)
+        if(op.mirrored)painter.draw(c,s.copy(x=p.width-s.x,angle=-s.angle),true)
+        liveDirty=true;generation++
+    }
+    private fun strokePaint(op:Operation.Stroke)=Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG).apply {
+        alpha=(op.brush.opacity*255).roundToInt().coerceIn(0,255)
+        blendMode=when {op.eraser->BlendMode.DST_OUT;op.alphaLock->BlendMode.SRC_ATOP;else->BlendMode.SRC_OVER}
+    }
+    private fun drawLocal(canvas:Canvas,p:Project,l:Layer) {
+        if(l.id==transientLayerId) {
+            canvas.drawBitmap(requireNotNull(liveBase),0f,0f,bitmapPaint)
+            canvas.drawBitmap(requireNotNull(liveInk),0f,0f,strokePaint(requireNotNull(liveOp)))
+        } else canvas.drawBitmap(layer(p,l),0f,0f,bitmapPaint)
+    }
+    private fun resolveLive():Bitmap {
+        val base=requireNotNull(liveBase)
+        val out:Bitmap=liveComposite ?: requireNotNull(Bitmap.createBitmap(base.width,base.height,Bitmap.Config.ARGB_8888)).also {liveComposite=it}
+        if(liveDirty) {
+            out.eraseColor(Color.TRANSPARENT)
+            val c=Canvas(out);c.drawBitmap(base,0f,0f,bitmapPaint)
+            c.drawBitmap(requireNotNull(liveInk),0f,0f,strokePaint(requireNotNull(liveOp)))
+            liveDirty=false
+        }
+        return out
     }
     fun end(committed:Layer?) {
-        val bitmap=transientBitmap;val id=transientLayerId
-        transientBitmap=null;transientLayerId=null
-        if(bitmap!=null && id!=null && committed!=null) {
-            layers.remove(id)
+        val id=transientLayerId
+        if(committed!=null && id!=null) {
+            val bitmap=resolveLive()
             layers[id]=Cached(committed.operations,bitmap);trim(id)
-        } // Uncached bitmaps are released by GC after any pending display-list use.
+        }
+        transientLayerId=null;liveOp=null;liveBase=null;liveInk=null;liveCanvas=null
+        livePainter=null;liveComposite=null;generation++
     }
     fun renderOperation(canvas:Canvas,p:Project,op:Operation) {
         when(op) {
             is Operation.Stroke -> {
-                val engine=BrushEngine(op.brush,op.seed) { s ->
-                    drawStamp(canvas,op,s)
-                    if(op.mirrored)drawStamp(canvas,op,s.copy(x=p.width-s.x,angle=-s.angle))
+                if(op.engineVersion==1) {
+                    val engine=BrushEngine(op.brush,op.seed,op.engineVersion) {s->
+                        drawLegacyStamp(canvas,op,s)
+                        if(op.mirrored)drawLegacyStamp(canvas,op,s.copy(x=p.width-s.x,angle=-s.angle))
+                    }
+                    op.samples.forEach(engine::add);engine.finish(op.samples.last())
+                } else {
+                    var buffer=replayBuffer
+                    if(buffer==null || buffer.width!=p.width || buffer.height!=p.height) {
+                        buffer=Bitmap.createBitmap(p.width,p.height,Bitmap.Config.ARGB_8888);replayBuffer=buffer
+                    }
+                    val strokeBuffer=requireNotNull(buffer)
+                    strokeBuffer.eraseColor(Color.TRANSPARENT)
+                    val target=Canvas(strokeBuffer);val painter=DabPainter(op)
+                    val engine=BrushEngine(op.brush,op.seed,op.engineVersion) {s->
+                        painter.draw(target,s,false)
+                        if(op.mirrored)painter.draw(target,s.copy(x=p.width-s.x,angle=-s.angle),true)
+                    }
+                    op.samples.forEach(engine::add);engine.finish(op.samples.last())
+                    canvas.drawBitmap(strokeBuffer,0f,0f,strokePaint(op))
+                    // A hardware display list may use it later; do not clear that same bitmap again.
+                    if(canvas.isHardwareAccelerated)replayBuffer=null
                 }
-                op.samples.forEach(engine::add);engine.finish(op.samples.last())
             }
             is Operation.Image -> {
                 val bitmap=assets.load(op.asset)
-                canvas.drawBitmap(bitmap,null,RectF(op.x,op.y,op.x+op.width,op.y+op.height),Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG))
-                bitmap.recycle()
+                canvas.drawBitmap(bitmap,null,RectF(op.x,op.y,op.x+op.width,op.y+op.height),bitmapPaint)
+                if(!canvas.isHardwareAccelerated)bitmap.recycle()
             }
+        }
+    }
+    /** One painter per stroke: no Canvas, color-filter or matrix allocation for every stamp. */
+    private inner class DabPainter(op:Operation.Stroke) {
+        private val solid=op.brush.isSolidInk()
+        private val bitmap=if(solid)null else tip(op.brush)
+        private val paint=Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG).apply {
+            color=op.color or 0xff000000.toInt()
+            if(!solid)colorFilter=PorterDuffColorFilter(color,PorterDuff.Mode.SRC_IN)
+            style=Paint.Style.FILL
+        }
+        private val bounds=RectF()
+        private val path=Path()
+        private var last:Stamp?=null
+        private var lastMirror:Stamp?=null
+        fun draw(canvas:Canvas,s:Stamp,mirror:Boolean) {
+            if(solid) {
+                paint.alpha=255
+                val a=if(mirror)lastMirror else last
+                if(a!=null) {
+                    val dx=s.x-a.x;val dy=s.y-a.y;val length=hypot(dx,dy)
+                    if(length>.0001f) {
+                        val nx=-dy/length;val ny=dx/length
+                        val r0=a.diameter/2;val r1=s.diameter/2
+                        path.rewind();path.moveTo(a.x+nx*r0,a.y+ny*r0)
+                        path.lineTo(s.x+nx*r1,s.y+ny*r1);path.lineTo(s.x-nx*r1,s.y-ny*r1)
+                        path.lineTo(a.x-nx*r0,a.y-ny*r0);path.close()
+                        canvas.drawPath(path,paint)
+                    }
+                }
+                canvas.drawCircle(s.x,s.y,s.diameter/2,paint)
+            } else {
+                paint.alpha=(s.alpha*255).roundToInt().coerceIn(0,255)
+                val r=s.diameter/2;bounds.set(-r,-r,r,r)
+                val save=canvas.save();canvas.translate(s.x,s.y);canvas.rotate(s.angle)
+                canvas.drawBitmap(requireNotNull(bitmap),null,bounds,paint);canvas.restoreToCount(save)
+            }
+            if(mirror)lastMirror=s else last=s
         }
     }
     private fun tip(brush:Brush):Bitmap {
@@ -103,7 +200,7 @@ class RasterRenderer(private val assets:AssetStore) : AutoCloseable {
         return bitmap
     }
     private val stampPaint=Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
-    private fun drawStamp(canvas:Canvas,op:Operation.Stroke,s:Stamp) {
+    private fun drawLegacyStamp(canvas:Canvas,op:Operation.Stroke,s:Stamp) {
         val bitmap=tip(op.brush)
         stampPaint.alpha=(s.alpha*255).roundToInt().coerceIn(0,255)
         stampPaint.colorFilter=PorterDuffColorFilter(op.color,PorterDuff.Mode.SRC_IN)
@@ -111,31 +208,58 @@ class RasterRenderer(private val assets:AssetStore) : AutoCloseable {
         canvas.save();canvas.translate(s.x,s.y);canvas.rotate(s.angle)
         val r=s.diameter/2;canvas.drawBitmap(bitmap,null,RectF(-r,-r,r,r),stampPaint);canvas.restore()
     }
+
     fun matrix(p:Project,l:Layer):Matrix = Matrix().apply {
         setTranslate(-p.width/2f,-p.height/2f);postScale(l.scale,l.scale);postRotate(l.rotation)
         postTranslate(p.width/2f+l.offsetX,p.height/2f+l.offsetY)
     }
+    private fun blend(m:Mixing)=when(m) {
+        Mixing.NORMAL->BlendMode.SRC_OVER;Mixing.MULTIPLY->BlendMode.MULTIPLY
+        Mixing.SCREEN->BlendMode.SCREEN;Mixing.OVERLAY->BlendMode.OVERLAY;Mixing.ADD->BlendMode.PLUS
+        Mixing.SOFT_LIGHT->BlendMode.SOFT_LIGHT;Mixing.DARKEN->BlendMode.DARKEN
+        Mixing.LIGHTEN->BlendMode.LIGHTEN;Mixing.DIFFERENCE->BlendMode.DIFFERENCE
+        Mixing.COLOR->BlendMode.COLOR;Mixing.LUMINOSITY->BlendMode.LUMINOSITY
+    }
+    private fun clipMask(p:Project,base:Layer):Bitmap {
+        val revision=if(base.id==transientLayerId)generation else -1L
+        clipMasks[base.id]?.let { if(it.source===base && it.generation==revision)return it.bitmap }
+        val bitmap=Bitmap.createBitmap(p.width,p.height,Bitmap.Config.ARGB_8888)
+        val c=Canvas(bitmap)
+        val paint=Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG).apply {alpha=(base.opacity*255).roundToInt()}
+        c.drawBitmap(layer(p,base),matrix(p,base),paint)
+        clipMasks[base.id]=ClipCache(base,revision,bitmap)
+        while(clipMasks.size>2) {val i=clipMasks.entries.iterator();i.next();i.remove()}
+        return bitmap
+    }
     fun compose(canvas:Canvas,p:Project,whiteBackground:Boolean=false) {
         checkDimensions(p)
-        canvas.save();canvas.clipRect(0,0,p.width,p.height)
+        val outer=canvas.save();canvas.clipRect(0,0,p.width,p.height)
         if(whiteBackground)canvas.drawColor(Color.WHITE)
         if(!p.transparent)canvas.drawColor(p.background)
-        val paint=Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
-        p.layers.forEach { l -> if(l.visible && l.opacity>0f) {
-            paint.alpha=(l.opacity*255).roundToInt()
-            paint.blendMode=when(l.mixing) {
-                Mixing.NORMAL->BlendMode.SRC_OVER;Mixing.MULTIPLY->BlendMode.MULTIPLY
-                Mixing.SCREEN->BlendMode.SCREEN;Mixing.OVERLAY->BlendMode.OVERLAY;Mixing.ADD->BlendMode.PLUS
+        val bounds=RectF(0f,0f,p.width.toFloat(),p.height.toFloat())
+        var clipBase:Layer?=null
+        p.layers.forEach { l ->
+            if(!l.clipped)clipBase=l
+            val base=clipBase
+            if(l.visible && l.opacity>0f && (!l.clipped || (base!=null && base.visible && base.opacity>0f))) {
+                layerPaint.alpha=(l.opacity*255).roundToInt();layerPaint.blendMode=blend(l.mixing)
+                if(l.id!=transientLayerId && !l.clipped) {
+                    canvas.drawBitmap(layer(p,l),matrix(p,l),layerPaint)
+                } else {
+                    // Isolate erasing/alpha-lock and clipping from lower layers and the background.
+                    val group=canvas.saveLayer(bounds,layerPaint)
+                    val local=canvas.save();canvas.concat(matrix(p,l));drawLocal(canvas,p,l);canvas.restoreToCount(local)
+                    if(l.clipped)canvas.drawBitmap(clipMask(p,requireNotNull(base)),0f,0f,maskPaint)
+                    canvas.restoreToCount(group)
+                }
             }
-            canvas.drawBitmap(layer(p,l),matrix(p,l),paint)
-        }}
-        canvas.restore()
+        }
+        canvas.restoreToCount(outer)
     }
     fun flatten(p:Project,whiteBackground:Boolean=false):Bitmap = Bitmap.createBitmap(p.width,p.height,Bitmap.Config.ARGB_8888).also {compose(Canvas(it),p,whiteBackground)}
     override fun close() {
-        transientBitmap=null;transientLayerId=null
-        // A hardware Canvas may still reference these bitmaps until its frame completes.
-        // Drop Java references rather than recycling a live display-list resource.
-        layers.clear();tips.clear()
+        transientLayerId=null;liveOp=null;liveBase=null;liveInk=null;liveCanvas=null;livePainter=null;liveComposite=null
+        replayBuffer=null;layers.clear();tips.clear();clipMasks.clear()
+        // Never recycle a bitmap that a hardware display list could still reference.
     }
 }

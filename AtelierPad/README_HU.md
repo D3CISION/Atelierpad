@@ -1,124 +1,65 @@
-# Atelier Pad 0.1.0-alpha
+# Atelier Pad 0.2.0-alpha
 
-Natív Androidos rajzalkalmazás első forráskód-változata, Xiaomi Pad 7 + Focus Pen munkafolyamatra tervezve.
+**Android-forrásprojekt, nem kész APK.** A 0.1-es alkalmazás már futott nálad, de a mostani verzió teljes Android-fordítása és tabletes tesztje itt nem történt meg. Az APK-t a mellékelt GitHub Actions workflow készíti el.
 
-**Ez forrásprojekt, nem telepíthető APK.** A teljes Android-fordítás és a készülékes tesztelés még nem történt meg. A kódgenerálási környezetben nincs Android SDK, és a buildcsomagok letöltése sem volt elérhető.
+## Mi változott?
 
-Az alkalmazás nem Procreate-másolat, és ez az alpha még nem a teljes tervezett funkciókészlet. A felület ebben a változatban angol.
+### Ecsetmotor
 
-## Mi van meg
+Időbélyeges tollminták, sebességhez igazodó pozíciósimítás, külön nyomássimítás, másodfokú görbék és egyenletesebb mintaközök. A vonás a toll felengedésekor a tényleges végpontra zárul.
 
-- Natív Kotlin/Android felület: rajzvászon, oldalsó eszközsáv, ecset-, szín- és rétegpanel. Nincs WebView.
-- Nyomásfüggő méret és fedés, állítható nyomásgörbe, vonalstabilizálás.
-- Hat ecsetpreset: tus, grafit, airbrush, száraz festék, sörte és kerek festőecset.
-- Ecsetszerkesztő: méret, flow, keménység, bélyegzőtávolság, textúra, szórás, forgatás, iránykövetés, minimum vonalvastagság. Saját presetek mentése.
-- Saját képalapú ecsetfej importja. A lenyomatot az alfa-csatorna adja; átlátszó PNG ajánlott. A JPG téglalap alakú, fedett lenyomatot ad.
-- Radír, pipetta, tükörszimmetria, rács, nagyítás, vászonforgatás, mozgatás.
-- Rétegek: létrehozás, másolás, törlés, sorrend, láthatóság, zárolás, alfa-zár, fedés; Normal, Multiply, Screen, Overlay és Add keverés.
-- Utólag módosítható rétegeltolás, méretezés és forgatás a Layer settings alatt.
-- Kitöltés állítható színtűréssel; határnak az aktív vagy minden látható réteget használja.
-- HSV-színválasztó, HEX-bevitel és alap paletta.
-- Kép importálása új rétegként vagy mozgatható referenciaablakként.
-- Visszavonás/újraalkalmazás; kétujjas koppintás: undo, háromujjas: redo.
-- Automatikus helyi projektmentés, helyi galéria, utolsó projekt visszaolvasása.
-- Export: szerkeszthető .atelier, PNG, JPEG, PDF.
+A kemény **Studio ink / Fine liner** ecset élsimított, összefüggő geometriát rajzol felnagyított kör-bitmapok helyett. A dokumentum továbbra is raszteres, nem vektorgrafika.
 
-## PDF-export
+Külön **Stroke opacity** (a teljes vonás fedése) és **Paint flow** (festékáramlás). A fedés csak egyszer kerül a teljes vonásra: ugyanazon félig átlátszó tusvonás önmetszése nem sötétedik fel 100%-ra. Külön vonások egymásra festhetők.
 
-Az Export > PDF menüben három választás van: vászonméret a projekt DPI-ével, A4, illetve A3. A4/A3 esetén az alkalmazás a képarányhoz választ álló vagy fekvő lapot, és a teljes képet vágás nélkül illeszti rá. A margó 18 pont, körülbelül 6,35 mm.
+Külön élő vonásfelület, kevesebb lenyomatonkénti objektumlétrehozás, nyolc ecsetpreset képes előnézettel. A rajzecset és a radír külön beállítást tart meg az aktuális munkamenetben.
 
-A PDF egyoldalas, összeolvasztott raszteres képet tartalmaz fehér lapon. Nem vektorosítja a rajzot, nem őrzi meg szerkeszthetően a rétegeket, és nem PDF/X nyomdai kimenet. A projektfájlt külön is mentsd el. A DPI a fizikai méretet adja meg; új képrészletet nem hoz létre.
+### Piktogramok és illusztrációs eszközök
 
-## Fordítás Windows alatt
+- Vektoros ikonok a fő eszközökhöz; hosszú nyomásra felirat, akadálymentes megnevezés, 48 dp érintési terület. A felület szövege egyelőre angol.
+- Alsó gyors ecsetméret-, fedés- és színvezérlő.
+- **Clipping mask / vágómaszk:** az alatta lévő legközelebbi nem vágómaszkos réteg formáján belül jelenik meg. A bázis láthatósága, alfája, fedése és transzformációja is számít. Az elrejtett bázis a hozzá vágott rétegeket is elrejti.
+- Réteg-bélyegképek, 11 keverési mód. Új: Soft light, Darken, Lighten, Difference, Color, Luminosity.
+- Ideiglenes vízszintes nézettükrözés és szürkeárnyalatos ellenőrzés; az exportot nem változtatják meg.
+- A panel elrejtése nem állítja vissza a nagyítást.
 
-1. Telepíts Android Studiót. Az SDK Managerben legyen telepítve az Android SDK Platform 35 és a Build Tools 35.0.0. A fordításhoz JDK 17 vagy 21 szükséges.
-2. Csomagold ki ezt a projektet. Nyiss terminált az AtelierPad könyvtárban.
-3. Futtasd:
+## Mentés és PDF
 
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\build-apk.ps1
-```
+Megmaradt a PNG-, JPEG-, PDF- és szerkeszthető .atelier export, az automatikus helyi mentés, a galéria és a korábbi eszközök.
 
-A Bypass csak az indított PowerShell-folyamatra vonatkozik, nem módosítja tartósan a gép beállítását. A script letölti a rögzített Gradle 8.11.1-et, ellenőrzi a hivatalos SHA-256 lenyomatot, elkészíti a szabványos Gradle wrappert, majd megpróbálja fordítani és egységtesztelni az alkalmazást. Az első futtatáshoz internetkapcsolat kell. Sikertelen fordításnál leáll; nem hoz létre látszólag sikeres APK-t.
+**PDF:** Export > PDF, vászonméret, A4 vagy A3, képaránytartó illesztés. Egyoldalas, összeolvasztott raszteres kép fehér alapon; nem PDF/X és nem réteges munkafájl.
 
-Sikeres fordítás után az APK helye:
+A 0.2 beolvassa a v1 .atelier fájlokat. A régi vonások továbbra is a befagyasztott LegacyBrushEngine motort használják, ezért nem kerül rájuk utólag az új simítás. Az új vonások v2-esek. **A v2-ben mentett projektet a 0.1 nem tudja visszaolvasni.** Az eredeti exportokat tartsd meg.
 
-```text
-app/build/outputs/apk/debug/app-debug.apk
-```
+## Frissítés GitHubon
 
-A Gradle wrapper létrehozása után az Android Studio az AtelierPad mappát közvetlenül meg tudja nyitni. A wrapper JAR nincs a forráscsomaghoz mellékelve; a bootstrap script generálja.
+1. A régi alkalmazásban exportáld a fontos rajzaidat **.atelier** fájlként, lehetőleg PNG-másolattal is.
+2. A ZIP **AtelierPad/** mappájával frissítsd a repó azonos nevű projektmappáját. Minden új .kt, ikon .xml és tests/fixtures fájl is szükséges. Ne legyen AtelierPad/AtelierPad/ egymásba ágyazás.
+3. A repó gyökerében cseréld a **.github/workflows/android.yml** fájlt a ZIP azonos elérésű fájljára. A korábbi hibás main.yml workflow-t ne hozd vissza.
+4. Commit changes, majd Actions > **Atelier Pad 0.2 APK** > Run workflow. Sikeres fordítás után az **AtelierPad-0.2-debug** artifactban jelenik meg az APK.
 
-## Linux / macOS
+**Nem elég csak az android.yml-t frissíteni.** Ha a Gradle-projekted közvetlenül a repó gyökerében van, az AtelierPad mappa tartalmát oda másold: a workflow mindkét elrendezést felismeri.
 
-Android SDK 35 és JDK 17/21 telepítése után:
+### Telepítés és adatbiztonság
 
-```bash
-bash tools/build-apk.sh
-```
+Az applicationId változatlan: hu.atelierpad.app, versionCode=2. A helyben frissítéshez azonos aláírás kell. A friss GitHub runner új debug kulcsot generálhat, ezért a telepítés aláírás-ütközéssel elutasítható.
 
-Az ANDROID_HOME az SDK helyére mutasson. A script a szokásos felhasználói SDK-könyvtárakat is megpróbálja felismerni. A Gradle wrapper generálása után például a `./gradlew :app:assembleDebug` parancs is használható.
+**Az alkalmazást csak ellenőrzött külső projektmentés után távolítsd el.** Eltávolításkor a helyi galéria törlődik. Az exportokat a Gallery > Open .atelier file menüben lehet visszaimportálni. A változatlan jövőbeli debug kulcshoz opcionális repótitok használható; lásd SIGNING.md.
 
-## GitHub Actions alternatíva
+## Ellenőrzés
 
-A .github/workflows/android.yml egy opcionális buildfolyamat. Nem kapcsolódtam GitHub-fiókhoz és nem töltöttem fel semmit. A teljes projekt saját, lehetőleg privát repositoryba feltöltve az Actions menüben kézzel indítható. Csak sikeres futás után jelenik meg APK-artifact. Ezt a CI-folyamatot itt nem futtattam.
+**59 platformfüggetlen Kotlin-ellenőrzés lefutott.** Mentés, v1/v2 kompatibilitás, régi vonások lenyomatlistája, simítás, nyomás, fedés/flow, végpontok, clipping metaadat, kitöltés és PDF-lapméretezés. Napló: tests/core-results.txt. A Gradle JVM-tesztjei is futtatják ezt az ellenőrzéssort.
 
-## Első próba a tableten
+A 32 XML-fájlt, az ikonhivatkozásokat és az ikonok külön kirajzolását ellenőriztem. A mag és RasterRenderer minimális, csak fordításra szolgáló API-helyettesítőkkel Kotlin-típusellenőrzésen is átesett. Ezek nem valódi SDK-osztályok és nincsenek a csomagban.
 
-Csak sikeres Android-fordítás után telepítsd az APK-t. Indulj az alap 1600 x 1200 pixeles vászonnal. A Stylus only alapból aktív: a toll rajzol, két ujjal mozgatható, nagyítható és forgatható a vászon. Toll nélküli próbához a Brush panelben kapcsold ki a Stylus only beállítást.
+**A teljes APK-fordítás, a felület, a 9 Android-eszközteszt, a kompozitálás és a Focus Pen rajzérzete itt még nincs ellenőrizve.** A workflow az eszközteszteket csak lefordítja, nem futtat emulátort. Részletek: tests/VERIFICATION.md és tests/DEVICE_CHECKLIST.md.
 
-Próbálj vékonytól vastagodó vonalat, radírozást, új réteget, undo/redo műveletet, majd egy .atelier projektet ments ki, nyiss vissza, és exportáld PDF-be. Részletes tesztlista: tests/DEVICE_CHECKLIST.md.
+Helyi alaptesztek: `bash tools/test-core.sh`. Készülékes tesztek: `gradle :app:connectedDebugAndroidTest`.
 
-## Ellenőrzési állapot
+Első próbához Studio ink vagy Fine liner, 100% Stroke opacity, 100% Paint flow, 25-40% Stabilization, 30-50% Pressure smoothing javasolt. Ez kiinduló beállítás, nem méréssel meghatározott kalibráció.
 
-- 28 platformfüggetlen Kotlin-teszt sikeresen lefutott. Napló: tests/core-results.txt.
-- A teljes alkalmazás Kotlin-szintaktikai és alap típusellenőrzése helyi, csak fordításra szolgáló Android API-helyettesítőkkel megtörtént. Ezek nem a valódi SDK, és nincsenek az alkalmazásba csomagolva. Ez nem igazolja az APK fordíthatóságát vagy futását.
-- Az Android-specifikus tesztek forrása elkészült: raszteres pont/radír, PDF megnyitása Android PdfRendererrel, tollvonás megszakítása, ujjérintés figyelmen kívül hagyása. Ezeket itt nem lehetett futtatni.
-- A megjelenés, a Focus Pen tényleges nyomásadatai, a késleltetés és a teljesítmény nincsenek készüléken ellenőrizve.
+## Korlátok
 
-A 28 alapteszt Android SDK nélkül is futtatható Kotlin parancssori fordítóval:
+Továbbra is alpha: CPU-s bitmaprétegek hardveresen gyorsított Android View-val, nem dedikált Vulkan/OpenGL festőmotor. Nincs még rétegmaszk, lasszó, rétegcsoport, maszatoló, fizikai pigmentkeverés, Liquify, PSD vagy Procreate-ecsetimport. A toll dőlése és gyártóspecifikus gombjai nem használt funkciók.
 
-```bash
-./tools/test-core.sh
-```
-
-Az Android-tesztek valódi SDK-val és csatlakoztatott eszközzel:
-
-```bash
-./gradlew :app:connectedDebugAndroidTest
-```
-
-## Ismert határok és még hiányzó funkciók
-
-A rajzolás CPU-s bitmapmotorral történik, hardveresen gyorsított Android View megjelenítéssel. Ez még nem dedikált OpenGL/Vulkan festőmotor, nincs mozgáselőrejelzés vagy garantált kis késleltetés. A nyomás 0..1 normalizált Android-adat; a Focus Pen gombjai és dőlése nem használt funkciók.
-
-A flow lenyomatonként halmozódik. Az ecsetkeménység és a textúra hatása az ecsetcsaládtól függ; a custom ecset formáját maga az importált alfa-csatorna határozza meg. Nincs valódi nedvesfesték-szimuláció, maszatolóecset vagy fizikai pigmentkeverés.
-
-Az alpha határai: legfeljebb 4096 pixel oldalhossz és 12 millió pixel/vászon, 32 réteg, 600 000 tárolt vonalpont, 20 000 művelet, 96 MiB kitömörített projektadat. A vászonlétrehozás további memóriaellenőrzést használ. A kitöltés legfeljebb 4 194 304 pixeles vásznon engedélyezett. Ezek védelmi korlátok, nem teljesítményígéretek.
-
-A rétegszám felső korlátja nem jelenti, hogy minden vászonméret mellett 32 réteg gyors vagy biztonságos. Sok nagy réteg esetén a készülékes teljesítményteszt elengedhetetlen.
-
-A következők még nincsenek meg: rétegcsoportok, clipping mask, rétegmaszk, lasszó/kijelölések, perspektívarács, alakzatfelismerés, korrekciós rétegek, Liquify, PSD, Procreate-ecsetformátum, P3/CMYK/PDF-X, felhőszinkron, animáció.
-
-A referenciakép elrendezése és az undo-előzmény nem része a .atelier mentésnek. A projekt rétegei és tényleges rajztartalma megmarad. A saját ecsetpresetek alkalmazásszinten tárolódnak; a projektben használt ecsetbeállítás és importált ecsetfej a projekttel együtt is mentődik.
-
-Az importált JPEG-ek EXIF szerinti forgatása még nem kezelt. Az importált nagy képeket az alkalmazás mintavételezve csökkenti. A helyi galéria első változata névlistás, nincs bélyegkép.
-
-## Adatbiztonság
-
-Az alkalmazás nem kér internet- vagy teljes tárhely-hozzáférést. A kiválasztott fájlokat az Android rendszer fájlválasztóján keresztül olvassa/írja. Az automatikus mentés privát alkalmazástárhelyre történik, atomi fájlfrissítéssel. Az alkalmazás eltávolítása vagy adatainak törlése ezeket a helyi projekteket is törli.
-
-**Fontos rajzról mindig készíts külső .atelier és PNG/PDF másolatot.** Az alpha mentési funkcióját valódi eszközön is ellenőrizni kell. A gyorsítótárban maradó, már nem hivatkozott importált assetek automatikus takarítása még nincs meg.
-
-## Projektfelépítés
-
-- core/Model.kt: immutable projekt- és rétegmodell, korlátok, undo/redo.
-- core/BrushEngine.kt: determinisztikus, nyomásérzékeny ecsetlenyomatok.
-- core/Geometry.kt: PDF-elrendezés, iteratív kitöltés.
-- core/ProjectArchive.kt: verziózott projektarchívum, SHA-256 assetek, méret- és útvonalellenőrzés.
-- app/RasterRenderer.kt: raszterezés, rétegcache, kompozitálás.
-- app/DrawingView.kt: toll/ujj szétválasztása, gesztusok, vonásvisszavonás megszakításkor.
-- app/ProjectFiles.kt: atomi helyi mentés, PNG/JPEG/PDF-export.
-- app/MainActivity.kt, Widgets.kt: natív felület.
-
-Technikai hivatkozások: SOURCES.md.
+A védelmi korlátok maradnak: 4096 px oldalhossz, legfeljebb 12 millió pixel, 32 réteg, 600 000 pont, 20 000 művelet. A kitöltés legfeljebb 4 194 304 pixeles vásznon használható. Ezek nem teljesítményígéretek. A referenciakép elrendezése és az undo-előzmény nem része a projektmentésnek. Az alkalmazás nem kér internetengedélyt vagy fiókot.

@@ -6,7 +6,7 @@ import java.util.zip.*
 
 /** Versioned ZIP container, deliberately independent of Android and thoroughly bounded. */
 object ProjectArchive {
-    const val VERSION = 1
+    const val VERSION = 2
     const val MAX_BYTES = 96 * 1024 * 1024
     data class Loaded(val project: Project, val assets: Map<String,ByteArray>)
     fun hash(bytes:ByteArray):String = MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }
@@ -65,14 +65,14 @@ object ProjectArchive {
         p.layers.forEach { l ->
             d.writeUTF(l.id);d.writeUTF(l.name);d.writeBoolean(l.visible);d.writeBoolean(l.locked);d.writeBoolean(l.alphaLock)
             d.writeFloat(l.opacity);d.writeInt(l.mixing.ordinal);d.writeFloat(l.offsetX);d.writeFloat(l.offsetY)
-            d.writeFloat(l.scale);d.writeFloat(l.rotation);d.writeInt(l.operations.size)
+            d.writeFloat(l.scale);d.writeFloat(l.rotation);d.writeBoolean(l.clipped);d.writeInt(l.operations.size)
             l.operations.forEach { op ->
                 when(op) {
                     is Operation.Stroke -> {
                         d.writeByte(1);d.writeUTF(op.id);writeBrush(d,op.brush)
                         d.writeInt(op.color);d.writeBoolean(op.eraser);d.writeBoolean(op.alphaLock);d.writeBoolean(op.mirrored)
-                        d.writeLong(op.seed);d.writeInt(op.samples.size)
-                        op.samples.forEach { s -> d.writeFloat(s.x);d.writeFloat(s.y);d.writeFloat(s.pressure) }
+                        d.writeLong(op.seed);d.writeInt(op.engineVersion);d.writeInt(op.samples.size)
+                        op.samples.forEach { s -> d.writeFloat(s.x);d.writeFloat(s.y);d.writeFloat(s.pressure);d.writeLong(s.timeMillis) }
                     }
                     is Operation.Image -> {
                         d.writeByte(2);d.writeUTF(op.id);d.writeUTF(op.asset)
@@ -84,7 +84,7 @@ object ProjectArchive {
     }
     fun readDocument(d:DataInputStream):Project {
         require(d.readInt()==0x41545044) { "Not an Atelier Pad document" }
-        require(d.readInt()==VERSION) { "Unsupported project version" }
+        val version=d.readInt(); require(version in 1..VERSION) { "Unsupported project version" }
         val id=d.readUTF();val title=d.readUTF();val w=d.readInt();val h=d.readInt();val dpi=d.readInt()
         require(w in 64..4096 && h in 64..4096 && w.toLong()*h<=12_000_000)
         val bg=d.readInt();val transparent=d.readBoolean();val active=d.readInt()
@@ -94,20 +94,22 @@ object ProjectArchive {
             val lid=d.readUTF();val name=d.readUTF();val visible=d.readBoolean();val locked=d.readBoolean();val alpha=d.readBoolean()
             val opacity=d.readFloat();val blend=d.readInt();require(blend in Mixing.values().indices)
             val ox=d.readFloat();val oy=d.readFloat();val scale=d.readFloat();val rot=d.readFloat()
+            val clipped=if(version>=2)d.readBoolean() else false
             val count=d.readInt();require(count in 0..20_000);ops+=count;require(ops<=20_000)
             val operations=List(count) {
                 when(d.readUnsignedByte()) {
                     1 -> {
-                        val oid=d.readUTF();val brush=readBrush(d);val color=d.readInt();val erase=d.readBoolean()
+                        val oid=d.readUTF();val brush=readBrush(d,version);val color=d.readInt();val erase=d.readBoolean()
                         val a=d.readBoolean();val mirror=d.readBoolean();val seed=d.readLong()
+                        val engine=if(version>=2)d.readInt() else 1;require(engine in 1..2)
                         val pc=d.readInt();require(pc in 1..600_000);points+=pc;require(points<=600_000)
-                        Operation.Stroke(oid,brush,color,erase,a,mirror,seed,List(pc) { Sample(d.readFloat(),d.readFloat(),d.readFloat()) })
+                        Operation.Stroke(oid,brush,color,erase,a,mirror,seed,List(pc) { Sample(d.readFloat(),d.readFloat(),d.readFloat(),if(version>=2)d.readLong() else 0L) },engine)
                     }
                     2 -> Operation.Image(d.readUTF(),d.readUTF(),d.readFloat(),d.readFloat(),d.readFloat(),d.readFloat())
                     else -> error("Unknown operation")
                 }
             }
-            Layer(lid,name,visible,locked,alpha,opacity,Mixing.values()[blend],ox,oy,scale,rot,operations)
+            Layer(lid,name,visible,locked,alpha,opacity,Mixing.values()[blend],ox,oy,scale,rot,operations,clipped)
         }
         require(d.read()==-1) { "Trailing document data" }
         return Project(id,title,w,h,dpi,bg,transparent,layers,active).also { it.validate() }
@@ -117,12 +119,13 @@ object ProjectArchive {
         listOf(b.size,b.opacity,b.spacing,b.hardness,b.smoothing,b.minSize,b.pressureGamma).forEach { d.writeFloat(it) }
         d.writeBoolean(b.pressureSize);d.writeBoolean(b.pressureOpacity)
         d.writeFloat(b.scatter);d.writeFloat(b.rotation);d.writeBoolean(b.followDirection);d.writeFloat(b.texture)
-        d.writeUTF(b.asset ?: "")
+        d.writeUTF(b.asset ?: "");d.writeFloat(b.flow);d.writeFloat(b.pressureSmoothing)
     }
-    fun readBrush(d:DataInputStream):Brush {
+    fun readBrush(d:DataInputStream,version:Int=VERSION):Brush {
         val name=d.readUTF();val tip=d.readInt();require(tip in Tip.values().indices)
         return Brush(name,Tip.values()[tip],d.readFloat(),d.readFloat(),d.readFloat(),d.readFloat(),d.readFloat(),
             d.readFloat(),d.readFloat(),d.readBoolean(),d.readBoolean(),d.readFloat(),d.readFloat(),d.readBoolean(),d.readFloat(),
-            d.readUTF().ifEmpty { null }).also { it.validate() }
+            d.readUTF().ifEmpty { null },if(version>=2)d.readFloat() else 1f,
+            if(version>=2)d.readFloat() else .35f).also { it.validate() }
     }
 }

@@ -1,11 +1,23 @@
 # Implementation references
 
-Checked 2026-10-10. These support platform API/build choices, not a claim of device testing.
+Primary platform documentation consulted; these are not bundled libraries.
+The toolbar vector paths are hand-authored; no Procreate artwork, brush assets
+or proprietary application code is included.
 
-- Android PdfDocument: https://developer.android.com/reference/android/graphics/pdf/PdfDocument
-- PDF point dimensions: https://developer.android.com/reference/android/graphics/pdf/PdfDocument.PageInfo.Builder
-- MotionEvent / pressure / cancellation: https://developer.android.com/develop/ui/views/touch-and-input/stylus-input/advanced-stylus-features
-- Palm rejection: https://developer.android.com/develop/adaptive-apps/cookbook/stylus-palm-rejection
-- AGP 8.9 compatibility (Gradle 8.11.1, API 35): https://developer.android.com/build/releases/agp-8-9-0-release-notes
-- Debug APK build workflow: https://developer.android.com/build/building-cmdline
-- Gradle Actions: https://github.com/gradle/actions/blob/main/setup-gradle/README.md
+- Android MotionEvent (historical input, pressure, event timestamps):
+  https://developer.android.com/reference/android/view/MotionEvent
+- Android stylus input:
+  https://developer.android.com/develop/ui/views/touch-and-input/stylus-input/advanced-stylus-features
+- Android View (unbuffered dispatch, frame invalidation):
+  https://developer.android.com/reference/android/view/View
+- Android Canvas / Path / BlendMode:
+  https://developer.android.com/reference/android/graphics/Canvas
+  https://developer.android.com/reference/android/graphics/Path
+  https://developer.android.com/reference/android/graphics/BlendMode
+- Android PDF output:
+  https://developer.android.com/reference/android/graphics/pdf/PdfDocument
+- Android application signing / debug keys:
+  https://developer.android.com/studio/publish/app-signing
+- GitHub workflow syntax and secrets:
+  https://docs.github.com/en/actions/writing-workflows/workflow-syntax-for-github-actions
+  https://docs.github.com/en/actions/security-for-github-actions/security-guides/using-secrets-in-github-actions

@@ -4,22 +4,25 @@ import java.util.UUID
 import kotlin.math.*
 
 /** Platform-independent, immutable project snapshots. Coordinates are canvas pixels. */
-data class Sample(val x: Float, val y: Float, val pressure: Float = 1f) {
-    fun valid() = x.isFinite() && y.isFinite() && pressure.isFinite() && abs(x) <= 100000 && abs(y) <= 100000 && pressure in 0f..1f
+data class Sample(val x: Float, val y: Float, val pressure: Float = 1f, val timeMillis: Long = 0L) {
+    fun valid() = x.isFinite() && y.isFinite() && pressure.isFinite() && abs(x) <= 100000 && abs(y) <= 100000 && pressure in 0f..1f && timeMillis in 0L..86_400_000L
 }
 enum class Tip { INK, PENCIL, SOFT, DRY, BRISTLE, CUSTOM }
-enum class Mixing { NORMAL, MULTIPLY, SCREEN, OVERLAY, ADD }
+enum class Mixing { NORMAL, MULTIPLY, SCREEN, OVERLAY, ADD, SOFT_LIGHT, DARKEN, LIGHTEN, DIFFERENCE, COLOR, LUMINOSITY }
 data class Brush(
     val name: String = "Studio ink", val tip: Tip = Tip.INK,
-    val size: Float = 14f, val opacity: Float = 1f, val spacing: Float = .12f,
-    val hardness: Float = .85f, val smoothing: Float = .25f,
-    val minSize: Float = .12f, val pressureGamma: Float = 1f,
+    val size: Float = 14f, val opacity: Float = 1f, val spacing: Float = .08f,
+    val hardness: Float = 1f, val smoothing: Float = .28f,
+    val minSize: Float = .06f, val pressureGamma: Float = 1f,
     val pressureSize: Boolean = true, val pressureOpacity: Boolean = false,
     val scatter: Float = 0f, val rotation: Float = 0f,
     val followDirection: Boolean = false, val texture: Float = .5f,
-    val asset: String? = null
+    val asset: String? = null,
+    val flow: Float = 1f, val pressureSmoothing: Float = .35f
 ) {
     fun validate() {
+        require(flow.isFinite() && flow in .01f..1f)
+        require(pressureSmoothing.isFinite() && pressureSmoothing in 0f..1f)
         require(name.length in 1..120)
         require(size.isFinite() && size in 1f..240f)
         require(opacity.isFinite() && opacity in .01f..1f)
@@ -38,11 +41,19 @@ data class Brush(
         val ASSET_ID = Regex("[a-f0-9]{64}")
         fun presets() = listOf(
             Brush(),
-            Brush("Graphite", Tip.PENCIL, 10f, .72f, .10f, smoothing=.15f, pressureOpacity=true, texture=.8f),
-            Brush("Soft airbrush", Tip.SOFT, 90f, .12f, .12f, hardness=.12f, minSize=.4f, pressureOpacity=true),
-            Brush("Dry paint", Tip.DRY, 48f, .64f, .16f, smoothing=.10f, texture=.7f, followDirection=true),
-            Brush("Bristles", Tip.BRISTLE, 36f, .70f, .08f, followDirection=true, texture=.8f),
-            Brush("Round paint", Tip.INK, 60f, .45f, .08f, hardness=.7f, minSize=.35f, pressureOpacity=true)
+            Brush("Fine liner", Tip.INK, 4f, smoothing=.38f, minSize=.15f),
+            Brush("Graphite", Tip.PENCIL, 10f, .85f, .07f, smoothing=.16f,
+                pressureOpacity=true, texture=.8f, flow=.34f),
+            Brush("Soft airbrush", Tip.SOFT, 90f, 1f, .08f, hardness=.12f,
+                minSize=.4f, pressureOpacity=true, flow=.10f),
+            Brush("Dry paint", Tip.DRY, 48f, .9f, .10f, smoothing=.14f,
+                texture=.7f, followDirection=true, flow=.55f),
+            Brush("Bristles", Tip.BRISTLE, 36f, .9f, .08f,
+                followDirection=true, texture=.8f, flow=.5f),
+            Brush("Round paint", Tip.INK, 60f, 1f, .06f,
+                hardness=.65f, minSize=.35f, pressureOpacity=true, flow=.28f),
+            Brush("Soft glaze", Tip.SOFT, 120f, .28f, .06f,
+                hardness=.05f, minSize=.45f, pressureOpacity=false, flow=.2f)
         )
     }
 }
@@ -51,7 +62,8 @@ sealed class Operation {
     data class Stroke(
         override val id: String = UUID.randomUUID().toString(),
         val brush: Brush, val color: Int, val eraser: Boolean, val alphaLock: Boolean,
-        val mirrored: Boolean, val seed: Long, val samples: List<Sample>
+        val mirrored: Boolean, val seed: Long, val samples: List<Sample>,
+        val engineVersion: Int = 2
     ) : Operation()
     data class Image(
         override val id: String = UUID.randomUUID().toString(),
@@ -63,7 +75,8 @@ data class Layer(
     val visible: Boolean = true, val locked: Boolean = false, val alphaLock: Boolean = false,
     val opacity: Float = 1f, val mixing: Mixing = Mixing.NORMAL,
     val offsetX: Float = 0f, val offsetY: Float = 0f, val scale: Float = 1f,
-    val rotation: Float = 0f, val operations: List<Operation> = emptyList()
+    val rotation: Float = 0f, val operations: List<Operation> = emptyList(),
+    val clipped: Boolean = false
 )
 data class Project(
     val id: String = UUID.randomUUID().toString(), val title: String = "Untitled",
@@ -93,7 +106,7 @@ data class Project(
                 require(UUID_PATTERN.matches(op.id) && ids.add(op.id)) { "Duplicate operation" }
                 when (op) {
                     is Operation.Stroke -> {
-                        op.brush.validate(); require(op.samples.isNotEmpty())
+                        op.brush.validate(); require(op.samples.isNotEmpty()); require(op.engineVersion in 1..2)
                         points += op.samples.size
                         require(op.samples.all { it.valid() })
                     }
@@ -111,7 +124,7 @@ data class Project(
         when(it) { is Operation.Image -> it.asset; is Operation.Stroke -> it.brush.asset }
     }.toSet()
     fun estimatedModelBytes(): Long = layers.sumOf { l -> l.operations.sumOf { op ->
-        when(op) { is Operation.Stroke -> 256L + op.samples.size * 24L; is Operation.Image -> 192L }
+        when(op) { is Operation.Stroke -> 256L + op.samples.size * 32L; is Operation.Image -> 192L }
     }}
     companion object { val UUID_PATTERN = Regex("[a-fA-F0-9-]{36}") }
 }

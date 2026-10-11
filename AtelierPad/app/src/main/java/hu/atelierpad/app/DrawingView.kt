@@ -20,7 +20,12 @@ class DrawingView(
     private val undo:()->Unit,private val redo:()->Unit
 ):View(context) {
     val renderer=RasterRenderer(assets)
-    var brush=Brush();var color=Color.rgb(33,39,47)
+    var onBrushChanged:(()->Unit)?=null
+    var brush=Brush()
+        set(value) { field=value;onBrushChanged?.invoke() }
+    var color=Color.rgb(33,39,47)
+    var mirrorView=false
+    var grayscaleView=false
     var tool=Tool.BRUSH
     var penOnly=true
     var symmetry=false
@@ -30,6 +35,8 @@ class DrawingView(
     private var zoom=1f;private var rotation=0f;private var panX=0f;private var panY=0f
     private var activePointer=-1
     private var activeStylus=false
+    private var strokeTime=0L
+    private var suppressFingers=false
     private var stroke:Operation.Stroke?=null
     private var engine:BrushEngine?=null
     private var samples=ArrayList<Sample>()
@@ -47,7 +54,7 @@ class DrawingView(
         shader=BitmapShader(b,Shader.TileMode.REPEAT,Shader.TileMode.REPEAT)
     }
     init { isFocusable=true;importantForAccessibility=IMPORTANT_FOR_ACCESSIBILITY_YES;contentDescription="Drawing canvas. Stylus draws; two fingers pan, zoom and rotate." }
-    override fun onSizeChanged(w:Int,h:Int,oldw:Int,oldh:Int) {super.onSizeChanged(w,h,oldw,oldh);fit()}
+    override fun onSizeChanged(w:Int,h:Int,oldw:Int,oldh:Int) {super.onSizeChanged(w,h,oldw,oldh);if(oldw==0 || oldh==0)fit() else {updateMatrix();invalidate()}}
     fun fit() {
         val p=project();zoom=min(width.toFloat()/p.width,height.toFloat()/p.height)*.86f
         if(zoom<=0)zoom=1f
@@ -56,7 +63,7 @@ class DrawingView(
     private fun updateMatrix() {
         val p=project()
         viewport.reset();viewport.setTranslate(-p.width/2f,-p.height/2f)
-        viewport.postScale(zoom,zoom);viewport.postRotate(rotation)
+        viewport.postScale(if(mirrorView)-zoom else zoom,zoom);viewport.postRotate(rotation)
         viewport.postTranslate(width/2f+panX,height/2f+panY);viewport.invert(inverse)
     }
     override fun onDraw(canvas:Canvas) {
@@ -66,7 +73,8 @@ class DrawingView(
         val bounds=RectF(0f,0f,p.width.toFloat(),p.height.toFloat())
         canvas.drawRect(RectF(-3f/zoom,-3f/zoom,p.width+3f/zoom,p.height+3f/zoom),Paint().apply{color=Color.BLACK})
         canvas.drawRect(bounds,checker)
-        val isolation=canvas.saveLayer(bounds,null)
+        val viewPaint=if(grayscaleView)Paint().apply {colorFilter=ColorMatrixColorFilter(ColorMatrix().apply {setSaturation(0f)})} else null
+        val isolation=canvas.saveLayer(bounds,viewPaint)
         renderer.compose(canvas,p);canvas.restoreToCount(isolation)
         if(showGrid) {
             val paint=Paint().apply{color=Color.argb(70,70,125,140);strokeWidth=1f/zoom}
@@ -95,24 +103,28 @@ class DrawingView(
         val xy=if(history<0)coordinates(e.getX(index),e.getY(index)) else coordinates(e.getHistoricalX(index,history),e.getHistoricalY(index,history))
         val raw=if(history<0)e.getPressure(index) else e.getHistoricalPressure(index,history)
         val pressure=if(!activeStylus)1f else if(raw<=0f) samples.lastOrNull()?.pressure ?: .15f else raw.coerceIn(.001f,1f)
-        return Sample(xy[0].coerceIn(-20000f,20000f),xy[1].coerceIn(-20000f,20000f),pressure)
+        val time=if(history<0)e.eventTime else e.getHistoricalEventTime(history)
+        return Sample(xy[0].coerceIn(-20000f,20000f),xy[1].coerceIn(-20000f,20000f),pressure,(time-strokeTime).coerceIn(0L,86_400_000L))
     }
     private fun start(e:MotionEvent,i:Int) {
         val p=project();val l=p.layers[p.active]
         if(tool==Tool.PAN)return
-        activePointer=e.getPointerId(i);activeStylus=stylus(e,i)
+        activePointer=e.getPointerId(i);activeStylus=stylus(e,i);strokeTime=e.eventTime
+        if(activeStylus)requestUnbufferedDispatch(e)
         if(tool==Tool.PICKER || tool==Tool.FILL) {pendingTap=tool;return}
         if(l.locked || !l.visible) {message("Select a visible, unlocked layer.");activePointer=-1;return}
         val count=p.layers.sumOf{layer->layer.operations.sumOf{if(it is Operation.Stroke)it.samples.size else 0}}
         if(count>=580000) {message("Project stroke limit reached. Export a backup before simplifying layers.");activePointer=-1;return}
         activeLayerId=l.id;samples=ArrayList()
         val op=Operation.Stroke(brush=brush,color=color,eraser=tool==Tool.ERASER || e.getToolType(i)==MotionEvent.TOOL_TYPE_ERASER,alphaLock=l.alphaLock,mirrored=symmetry,seed=System.nanoTime(),samples=emptyList())
-        stroke=op;renderer.begin(p,l)
+        stroke=op;renderer.begin(p,l,op)
         engine=BrushEngine(op.brush,op.seed){renderer.liveStamp(p,op,it)}
         add(sample(e,i));parent.requestDisallowInterceptTouchEvent(true)
     }
     private fun add(s:Sample) {
         if(samples.size>=20000)return
+        val last=samples.lastOrNull()
+        if(last!=null && last.x==s.x && last.y==s.y && last.pressure==s.pressure)return
         samples.add(s);engine?.add(s)
     }
     fun finishStroke(cancel:Boolean=false) {
@@ -129,7 +141,7 @@ class DrawingView(
                 } else renderer.end(null)
             } else renderer.end(null)
         }
-        stroke=null;engine=null;samples=ArrayList();activeLayerId=null;activePointer=-1;pendingTap=null
+        stroke=null;engine=null;samples=ArrayList();activeLayerId=null;activePointer=-1;activeStylus=false;pendingTap=null
         parent?.requestDisallowInterceptTouchEvent(false);invalidate()
     }
     private fun finishTap(e:MotionEvent,i:Int,cancel:Boolean) {
@@ -155,7 +167,7 @@ class DrawingView(
         val canceled=Build.VERSION.SDK_INT>=33 && (e.flags and MotionEvent.FLAG_CANCELED)!=0
         if(action==MotionEvent.ACTION_CANCEL) {finishStroke(true);gestureStarted=false;return true}
         if(action==MotionEvent.ACTION_DOWN) {
-            gestureTime=e.eventTime;gestureMax=1;gestureMotion=0f;gestureStarted=false
+            gestureTime=e.eventTime;gestureMax=1;gestureMotion=0f;gestureStarted=false;suppressFingers=false
             gestureFirstX=e.x;gestureFirstY=e.y
             if(stylus(e,ai) || (!penOnly && tool!=Tool.PAN))start(e,ai)
         } else if(action==MotionEvent.ACTION_POINTER_DOWN) {
@@ -170,11 +182,16 @@ class DrawingView(
             }
             if((action==MotionEvent.ACTION_UP || action==MotionEvent.ACTION_POINTER_UP) && e.getPointerId(ai)==activePointer) {
                 if(pendingTap!=null)finishTap(e,ai,canceled) else {
-                    if(!canceled)add(sample(e,ai));finishStroke(canceled)
+                    if(!canceled) {
+                        for(h in 0 until e.historySize)add(sample(e,ai,h))
+                        add(sample(e,ai))
+                    }
+                    if(activeStylus && e.pointerCount>1)suppressFingers=true
+                    finishStroke(canceled)
                 }
                 gestureStarted=false;gestureMax=0
             }
-        } else if(action==MotionEvent.ACTION_MOVE) {
+        } else if(action==MotionEvent.ACTION_MOVE && !suppressFingers) {
             val fingers=(0 until e.pointerCount).filter{!stylus(e,it)}
             if(fingers.size>=2 || (fingers.size==1 && tool==Tool.PAN)) {
                 val i=fingers[0];val j=if(fingers.size>1)fingers[1] else i
@@ -195,12 +212,12 @@ class DrawingView(
         }
         if(action==MotionEvent.ACTION_POINTER_UP)gestureStarted=false
         if(action==MotionEvent.ACTION_UP) {
-            if(!canceled && activePointer<0 && e.eventTime-gestureTime<280 && gestureMotion<20*resources.displayMetrics.density) {
+            if(!canceled && !suppressFingers && activePointer<0 && e.eventTime-gestureTime<280 && gestureMotion<20*resources.displayMetrics.density) {
                 if(gestureMax==2)undo() else if(gestureMax==3)redo()
             }
             gestureStarted=false;gestureMax=0
         }
-        invalidate();return true
+        postInvalidateOnAnimation();return true
     }
     override fun performClick():Boolean {super.performClick();return true}
     fun release() {finishStroke(true);renderer.close()}
