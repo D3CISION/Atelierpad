@@ -80,5 +80,24 @@ PASS size slider endpoints and out of range progress
 PASS size slider is monotonic and round trips
 PASS opacity slider is bounded and round trips
 PASS slider mapping handles invalid persisted values
+PASS recent colors are opaque, deduplicated and most recent first
+PASS recent colors have a bounded persistent history
+PASS recent colors tolerate missing and malformed preferences
+PASS wheel center is white saturation and retains the hue
+PASS wheel cardinal hue positions match the sweep gradient
+PASS wheel touch positions outside the disc clamp saturation
+PASS wheel cursor location and touch are inverse at many hues
+PASS drop bottom to visual top retains the active layer identity
+PASS drop top to visual bottom retains the active layer identity
+PASS adjacent insertion gaps are no-op drops
+PASS accessible move uses the same reorder operation
+PASS invalid drag identifiers and insertion gaps are rejected
+PASS a clipping layer dropped at bottom becomes an ordinary base
+PASS reorder is fully undoable and preserves operation identities
+PASS every layer survives every possible insertion gap exactly once
+PASS header reading does not require decoding operations or assets
+PASS header reader supports the previous v1 and v2 files
+PASS header reader rejects malformed or unsupported documents
+PASS header reader bounds canvas metadata before preview allocation
 
-82 core tests passed; Android device/instrumentation tests are separate.
+101 core tests passed; Android device/instrumentation tests are separate.

@@ -12,9 +12,9 @@ import hu.atelierpad.core.*
 import kotlin.math.*
 
 object Theme {
-    val bg=Color.rgb(19,23,29);val panel=Color.rgb(28,33,41);val card=Color.rgb(39,46,56)
-    val line=Color.rgb(53,63,73);val ink=Color.rgb(235,240,244);val muted=Color.rgb(156,169,183)
-    val accent=Color.rgb(145,225,195)
+    val bg=Color.rgb(21,21,23);val panel=Color.rgb(30,30,33);val card=Color.rgb(40,40,44);val selected=Color.rgb(65,65,71)
+    val line=Color.rgb(63,63,69);val ink=Color.rgb(238,238,241);val muted=Color.rgb(157,157,165)
+    val accent=Color.rgb(216,216,223)
 }
 fun Context.dp(n:Int)=(n*resources.displayMetrics.density+.5f).toInt()
 fun rounded(color:Int,radius:Float=12f,stroke:Int?=null)=GradientDrawable().apply {
@@ -33,13 +33,13 @@ fun Context.iconButton(icon:Int,title:String,primary:Boolean=false,action:()->Un
     setImageResource(icon);scaleType=ImageView.ScaleType.CENTER_INSIDE
     setPadding(dp(13),dp(13),dp(13),dp(13));minimumWidth=dp(48);minimumHeight=dp(48)
     contentDescription=title;tooltipText=title;isFocusable=true
-    imageTintList=ColorStateList.valueOf(if(primary)Theme.bg else Theme.ink)
-    background=RippleDrawable(ColorStateList.valueOf(0x337fa99a),rounded(if(primary)Theme.accent else Theme.card,dp(13).toFloat()),null)
+    imageTintList=ColorStateList.valueOf(Theme.ink)
+    background=RippleDrawable(ColorStateList.valueOf(0x337fa99a),rounded(if(primary)Theme.selected else Color.TRANSPARENT,dp(12).toFloat()),null)
     setOnClickListener {action()}
 }
 fun Context.styleIcon(button:ImageButton,active:Boolean) {
-    button.imageTintList=ColorStateList.valueOf(if(active)Theme.bg else Theme.ink)
-    button.background=RippleDrawable(ColorStateList.valueOf(0x337fa99a),rounded(if(active)Theme.accent else Theme.card,dp(13).toFloat()),null)
+    button.imageTintList=ColorStateList.valueOf(Theme.ink)
+    button.background=RippleDrawable(ColorStateList.valueOf(0x337fa99a),rounded(if(active)Theme.selected else Color.TRANSPARENT,dp(12).toFloat()),null)
     button.isSelected=active
 }
 fun Context.column(padding:Int=0)=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;isMotionEventSplittingEnabled=true;setPadding(dp(padding),dp(padding),dp(padding),dp(padding))}
@@ -135,29 +135,5 @@ class LayerThumbnail(context:Context,private val renderer:RasterRenderer,private
         val scale=min(width.toFloat()/p.width,height.toFloat()/p.height)
         val w=p.width*scale;val h=p.height*scale
         canvas.drawBitmap(renderer.layer(p,layer),null,RectF((width-w)/2,(height-h)/2,(width+w)/2,(height+h)/2),paint)
-    }
-}
-class ColorField(context:Context,initial:Int,private val selected:(Int)->Unit):View(context) {
-    private val hsv=FloatArray(3).also{Color.colorToHSV(initial,it)}
-    fun setHue(h:Float){hsv[0]=h;selected(Color.HSVToColor(hsv));invalidate()}
-    fun setColor(color:Int){Color.colorToHSV(color,hsv);invalidate()}
-    override fun onDraw(canvas:Canvas) {
-        val pure=Color.HSVToColor(floatArrayOf(hsv[0],1f,1f))
-        val p=Paint().apply{shader=LinearGradient(0f,0f,width.toFloat(),0f,Color.WHITE,pure,Shader.TileMode.CLAMP)}
-        canvas.drawRect(0f,0f,width.toFloat(),height.toFloat(),p)
-        p.shader=LinearGradient(0f,0f,0f,height.toFloat(),Color.TRANSPARENT,Color.BLACK,Shader.TileMode.CLAMP)
-        canvas.drawRect(0f,0f,width.toFloat(),height.toFloat(),p)
-        val x=hsv[1]*width;val y=(1-hsv[2])*height
-        p.shader=null;p.style=Paint.Style.STROKE;p.strokeWidth=context.dp(2).toFloat();p.color=Color.WHITE
-        canvas.drawCircle(x,y,context.dp(7).toFloat(),p);p.strokeWidth=1f;p.color=Color.BLACK;canvas.drawCircle(x,y,context.dp(9).toFloat(),p)
-    }
-    override fun onTouchEvent(e:MotionEvent):Boolean {
-        if(e.actionMasked==MotionEvent.ACTION_DOWN || e.actionMasked==MotionEvent.ACTION_MOVE) {
-            parent.requestDisallowInterceptTouchEvent(true)
-            hsv[1]=(e.x/width).coerceIn(0f,1f);hsv[2]=1-(e.y/height).coerceIn(0f,1f)
-            selected(Color.HSVToColor(hsv));invalidate()
-        }
-        if(e.actionMasked==MotionEvent.ACTION_UP || e.actionMasked==MotionEvent.ACTION_CANCEL)parent.requestDisallowInterceptTouchEvent(false)
-        return true
     }
 }

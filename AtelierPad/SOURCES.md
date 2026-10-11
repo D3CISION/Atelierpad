@@ -27,3 +27,13 @@ Additional references for 0.3:
   https://developer.android.com/develop/ui/views/touch-and-input/gestures/viewgroup
 - Native SeekBar input and accessibility:
   https://developer.android.com/reference/android/widget/SeekBar
+
+Additional primary references for 0.4:
+- Android native view drag/drop and local-state ownership:
+  https://developer.android.com/develop/ui/views/touch-and-input/drag-drop/view
+- Android AtomicFile recovery and replacement:
+  https://developer.android.com/reference/android/util/AtomicFile
+- Android circular hue rendering / SweepGradient:
+  https://developer.android.com/reference/android/graphics/SweepGradient
+- Android native dialog behavior:
+  https://developer.android.com/develop/ui/views/components/dialogs

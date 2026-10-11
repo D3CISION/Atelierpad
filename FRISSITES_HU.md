@@ -1,12 +1,11 @@
-# Atelier Pad 0.3 frissítés
+# Frissítés 0.4-re
 
-A teljes AtelierPad/ projektmappát frissítsd, az új fájlokkal együtt.
-A .github/workflows/android.yml helyére a mellékelt android.yml kerüljön.
-Csak egy aktív workflow maradjon; a régi main.yml ne kerüljön vissza.
+A teljes AtelierPad/ mappát és a gyökér .github/workflows/android.yml fájlját is frissítsd. Ne ágyazz egymásba két AtelierPad mappát. A régi main.yml ne kerüljön vissza.
 
-Actions > Atelier Pad 0.3 APK > Run workflow > install_mode: side-by-side.
-Az app a régi mellé települ "Atelier Pad 0.3" néven. Nem kell a régit törölni.
-A korábbi galériát nem veszi át automatikusan: export/import .atelier fájllal.
+Actions > Atelier Pad 0.4 APK > Run workflow > side-by-side. Artifact: AtelierPad-0.4-debug. Ez forrás, nem kész APK.
 
-APK artifact: AtelierPad-0.3-debug. A csomag jelenleg forráskód, nem APK.
-Részletes útmutató: AtelierPad/README_HU.md.
+A 0.4 külön alkalmazásként települ (hu.atelierpad.app.preview04), a régi megmarad. Mentsd ki a rajzokat .atelier fájlként; az új kezdőlap Open project menüjében importálhatod őket. A projektformátum v3 maradt, 0.3-mal kompatibilis.
+
+Az update mód az eredeti hu.atelierpad.app csomagot célozza, nem a preview03-at. Állandó aláírókulcs nélkül későbbi azonos csomagú APK sem feltétlenül frissíthető helyben. Mentés nélkül ne töröld a régi alkalmazást.
+
+Részletes változások és ellenőrzési korlátok: README_HU.md.

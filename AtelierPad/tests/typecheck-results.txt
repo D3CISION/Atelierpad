@@ -1,0 +1,3 @@
+PASS: production Kotlin and new MinimalWorkspaceTest Kotlin compiled against local handwritten API placeholders.
+NOT an Android SDK compilation, aapt2 link, Gradle build, test execution or runtime/UI verification.
+Placeholder classes and throwaway jars are deliberately not shipped.

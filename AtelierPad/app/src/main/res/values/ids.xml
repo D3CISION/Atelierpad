@@ -1,0 +1,4 @@
+<resources>
+    <item name="layer_move_up" type="id" />
+    <item name="layer_move_down" type="id" />
+</resources>

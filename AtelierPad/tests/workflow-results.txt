@@ -1,6 +1,2 @@
-PASS: workflow parsed; side-by-side is the default.
-PASS: 5 workflow shell commands passed bash -n.
-PASS: helper shell scripts passed bash -n.
-PASS: project discovery in repository root and AtelierPad/ subfolder; missing-project error.
-PASS: standalone android.yml equals workflow copy.
-NOTE: no real GitHub Actions execution, dependency download, APK build or signing occurred here.
+PASS: both workflow copies identical; YAML parsed; all inline Bash scripts pass bash -n; root/nested project fixtures pass; UI-check step and 0.4 names present.
+Not a GitHub-hosted build or authenticated repository modification.

@@ -266,6 +266,116 @@ fun runCoreRegression(fixture:(String)->ByteArray):Int {
         check(SliderScale.sizeProgress(Float.NaN)==0);check(SliderScale.sizeProgress(-100f)==0)
         check(SliderScale.sizeProgress(1000f)==1000);check(SliderScale.opacityProgress(Float.POSITIVE_INFINITY)==0)
     }
+    test("recent colors are opaque, deduplicated and most recent first") {
+        val red=0xffff0000.toInt();val blue=0xff0000ff.toInt()
+        check(RecentColors.add(listOf(red,blue),0x22ff0000)==listOf(red,blue))
+        check(RecentColors.add(listOf(red,blue),blue)==listOf(blue,red))
+    }
+    test("recent colors have a bounded persistent history") {
+        var colors=emptyList<Int>();repeat(50){colors=RecentColors.add(colors,it)}
+        check(colors.size==12 && colors.first()==(49 or 0xff000000.toInt()))
+        check(RecentColors.decode(RecentColors.encode(colors))==colors)
+    }
+    test("recent colors tolerate missing and malformed preferences") {
+        check(RecentColors.decode(null).isEmpty())
+        check(RecentColors.decode("bad,NaN,0,0,2147483648")==listOf(0xff000000.toInt()))
+    }
+    test("wheel center is white saturation and retains the hue") {
+        check(ColorWheelGeometry.at(0f,0f,100f,122f)==ColorWheelGeometry.Polar(122f,0f))
+    }
+    test("wheel cardinal hue positions match the sweep gradient") {
+        check(abs(ColorWheelGeometry.at(100f,0f,100f,0f).hue)<.001f)
+        check(abs(ColorWheelGeometry.at(0f,100f,100f,0f).hue-90)<.001f)
+        check(abs(ColorWheelGeometry.at(-100f,0f,100f,0f).hue-180)<.001f)
+        check(abs(ColorWheelGeometry.at(0f,-100f,100f,0f).hue-270)<.001f)
+    }
+    test("wheel touch positions outside the disc clamp saturation") {
+        check(ColorWheelGeometry.at(400f,0f,100f,0f).saturation==1f)
+        fails{ColorWheelGeometry.at(0f,0f,0f,0f)}
+        fails{ColorWheelGeometry.at(Float.NaN,0f,100f,0f)}
+    }
+    test("wheel cursor location and touch are inverse at many hues") {
+        for(hue in 0 until 360 step 3)for(saturation in listOf(.1f,.5f,1f)) {
+            val (x,y)=ColorWheelGeometry.point(hue.toFloat(),saturation,120f)
+            val polar=ColorWheelGeometry.at(x,y,120f,0f)
+            check(abs(polar.saturation-saturation)<.001f)
+            check(abs(polar.hue-hue)<.001f)
+        }
+    }
+    val stack=Project(layers=listOf(Layer(name="bottom"),Layer(name="middle"),Layer(name="top")),active=1)
+    test("drop bottom to visual top retains the active layer identity") {
+        val moved=LayerOrder.dropAt(stack,stack.layers[0].id,0)
+        check(moved.layers.map{it.name}==listOf("middle","top","bottom"))
+        check(moved.layers[moved.active].id==stack.layers[stack.active].id);moved.validate()
+    }
+    test("drop top to visual bottom retains the active layer identity") {
+        val moved=LayerOrder.dropAt(stack,stack.layers[2].id,3)
+        check(moved.layers.map{it.name}==listOf("top","bottom","middle"))
+        check(moved.active==2)
+    }
+    test("adjacent insertion gaps are no-op drops") {
+        check(LayerOrder.dropAt(stack,stack.layers[1].id,1)===stack)
+        check(LayerOrder.dropAt(stack,stack.layers[1].id,2)===stack)
+    }
+    test("accessible move uses the same reorder operation") {
+        val up=LayerOrder.moveBy(stack,stack.layers[1].id,true)
+        check(up.layers.last().name=="middle")
+        check(LayerOrder.moveBy(up,stack.layers[1].id,false)==stack)
+        check(LayerOrder.moveBy(stack,stack.layers.last().id,true)===stack)
+        check(LayerOrder.moveBy(stack,stack.layers.first().id,false)===stack)
+    }
+    test("invalid drag identifiers and insertion gaps are rejected") {
+        fails{LayerOrder.dropAt(stack,"missing",0)}
+        fails{LayerOrder.dropAt(stack,stack.layers[0].id,4)}
+        fails{LayerOrder.dropAt(stack,stack.layers[0].id,-1)}
+    }
+    test("a clipping layer dropped at bottom becomes an ordinary base") {
+        val clipped=stack.copy(layers=stack.layers.mapIndexed{i,l->l.copy(clipped=i==2)})
+        val dropped=LayerOrder.dropAt(clipped,clipped.layers[2].id,3)
+        check(!dropped.layers.first().clipped);check(dropped.layers.first().id==clipped.layers.last().id)
+    }
+    test("reorder is fully undoable and preserves operation identities") {
+        val original=stack.copy(layers=stack.layers.mapIndexed{i,l->if(i==1)l.copy(operations=listOf(stroke)) else l})
+        val moved=LayerOrder.dropAt(original,original.layers[1].id,0)
+        check(moved.layers.last().operations===original.layers[1].operations)
+        val h=ProjectHistory(original);h.commit(moved,"reorder");check(h.undo() && h.current==original)
+        check(h.redo() && h.current==moved)
+    }
+    test("every layer survives every possible insertion gap exactly once") {
+        for(layer in stack.layers)for(gap in 0..stack.layers.size) {
+            val moved=LayerOrder.dropAt(stack,layer.id,gap);moved.validate()
+            check(moved.layers.map{it.id}.toSet()==stack.layers.map{it.id}.toSet())
+            check(moved.layers[moved.active].id==stack.layers[stack.active].id)
+        }
+    }
+    test("header reading does not require decoding operations or assets") {
+        val p=Project(title="Illustration",width=800,height=1200)
+        val bytes=ByteArrayOutputStream();ProjectArchive.writeDocument(DataOutputStream(bytes),p)
+        val h=ProjectHeader.read(ByteArrayInputStream(bytes.toByteArray()))
+        check(h.id==p.id && h.title==p.title && h.width==800 && h.height==1200 && h.dpi==300)
+    }
+    test("header reader supports the previous v1 and v2 files") {
+        for(file in listOf("legacy-v1.atelier","legacy-v2.atelier")) {
+            ZipInputStream(ByteArrayInputStream(fixture(file))).use {zip->
+                var entry=zip.nextEntry
+                while(entry!=null && entry.name!="document.bin") {zip.closeEntry();entry=zip.nextEntry}
+                check(entry!=null);val h=ProjectHeader.read(zip)
+                check(h.width>=64 && h.height>=64 && h.title.isNotBlank())
+            }
+        }
+    }
+    test("header reader rejects malformed or unsupported documents") {
+        fails{ProjectHeader.read(ByteArrayInputStream(ByteArray(64)))}
+        val b=ByteArrayOutputStream();DataOutputStream(b).apply{writeInt(0x41545044);writeInt(99)}
+        fails{ProjectHeader.read(ByteArrayInputStream(b.toByteArray()))}
+    }
+    test("header reader bounds canvas metadata before preview allocation") {
+        val b=ByteArrayOutputStream();DataOutputStream(b).apply {
+            writeInt(0x41545044);writeInt(3);writeUTF(java.util.UUID.randomUUID().toString());writeUTF("X")
+            writeInt(999999);writeInt(999999);writeInt(300)
+        }
+        fails{ProjectHeader.read(ByteArrayInputStream(b.toByteArray()))}
+    }
     println("\n$passed core tests passed; Android device/instrumentation tests are separate.")
     return passed
 }

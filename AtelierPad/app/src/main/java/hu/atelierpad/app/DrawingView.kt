@@ -54,6 +54,12 @@ class DrawingView(
     var showGrid=false
     private val viewport=Matrix()
     private val inverse=Matrix()
+    data class ViewportState(val zoom:Float,val rotation:Float,val panX:Float,val panY:Float)
+    fun captureViewport()=ViewportState(zoom,rotation,panX,panY)
+    fun restoreViewport(state:ViewportState) {
+        zoom=state.zoom.coerceIn(.05f,30f);rotation=state.rotation;panX=state.panX;panY=state.panY
+        updateMatrix();invalidate()
+    }
     private var zoom=1f;private var rotation=0f;private var panX=0f;private var panY=0f
     private var activePointer=-1
     private var activeStylus=false
@@ -89,7 +95,7 @@ class DrawingView(
         viewport.postTranslate(width/2f+panX,height/2f+panY);viewport.invert(inverse)
     }
     override fun onDraw(canvas:Canvas) {
-        super.onDraw(canvas);canvas.drawColor(Color.rgb(19,23,29))
+        super.onDraw(canvas);canvas.drawColor(Theme.bg)
         val p=project();updateMatrix()
         canvas.save();canvas.concat(viewport)
         val bounds=RectF(0f,0f,p.width.toFloat(),p.height.toFloat())

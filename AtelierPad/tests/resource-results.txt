@@ -1,3 +1,2 @@
-PASS: 38 XML documents parsed.
-PASS: 27 referenced app drawable IDs exist.
-NOTE: XML parsing is not Android resource linking or on-device inflation.
+PASS: 41 XML files parse; resource names resolve; requested toolbar order and removed labels checked; gallery is the startup screen.
+Static checks only: Android resource linking, rendering and input still require an Android build/device.

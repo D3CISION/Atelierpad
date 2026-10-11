@@ -14,12 +14,26 @@ class ProjectFiles(private val context:Context,val assets:AssetStore) {
     val directory=File(context.filesDir,"projects").apply{mkdirs()}
     fun path(p:Project)=File(directory,"${p.id}.atelier")
     fun localProjects():List<File> = directory.listFiles()?.mapNotNull{when {it.extension=="atelier"->it;it.name.endsWith(".atelier.bak")->File(it.path.removeSuffix(".bak"));else->null}}?.distinctBy{it.path}?.sortedByDescending{it.lastModified()} ?: emptyList()
+    val gallery by lazy { ProjectGallery(context, this) }
+    private val saved = LinkedHashMap<String,Project>()
+    private fun remember(p:Project) {
+        saved.remove(p.id);saved[p.id]=p
+        while(saved.size>3)saved.remove(saved.keys.first())
+    }
     fun saveLocal(p:Project) {
+        val target=path(p)
+        val previous=saved[p.id] ?: if(target.exists() || File(target.path+".bak").exists())readLocal(target) else null
+        if(previous==p && path(p).isFile)return
+        val edited=if(previous!=null && previous.copy(active=0)==p.copy(active=0))
+            gallery.lastEdited(path(p)) else System.currentTimeMillis()
         val atomic=AtomicFile(path(p));var out:FileOutputStream?=null
         try {out=atomic.startWrite();ProjectArchive.write(out,p,assets::bytes);atomic.finishWrite(out)}
         catch(t:Throwable){atomic.failWrite(out);throw t}
+        remember(p)
+        // The project is durably saved even if optional index/cache maintenance fails.
+        try { gallery.afterSave(p,edited) } catch (_:IOException) { }
     }
-    fun readLocal(file:File):Project = AtomicFile(file).openRead().use {load(it)}
+    fun readLocal(file:File):Project = AtomicFile(file).openRead().use {load(it)}.also(::remember)
     fun load(input:InputStream):Project {
         val loaded=ProjectArchive.read(input);assets.install(loaded);return loaded.project
     }

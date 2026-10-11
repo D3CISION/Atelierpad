@@ -9,7 +9,7 @@ class CoreJUnitTest {
         val count=hu.atelierpad.tests.runCoreRegression {name->
             requireNotNull(javaClass.classLoader?.getResourceAsStream(name)) {"Missing fixture: $name"}.use {it.readBytes()}
         }
-        assertTrue(count>=82)
+        assertTrue(count>=101)
     }
     @Test fun archiveRoundTrip(){val p=Project();val bytes=ByteArrayOutputStream();ProjectArchive.write(bytes,p){error("no assets")};assertEquals(p,ProjectArchive.read(ByteArrayInputStream(bytes.toByteArray())).project)}
     @Test fun pdfFit(){val g=ExportGeometry.pdf(1600,1200,300,PdfPaper.A4);assertEquals(842,g.pageWidth);assertEquals(595,g.pageHeight);assertEquals(4f/3,g.width/g.height,.001f)}
