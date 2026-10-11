@@ -57,7 +57,7 @@ class RasterRenderer(private val assets:AssetStore) : AutoCloseable {
         val base=layer(p,l)
         liveBase=base;liveOp=op;transientLayerId=l.id
         liveInk=Bitmap.createBitmap(p.width,p.height,Bitmap.Config.ARGB_8888)
-        liveCanvas=Canvas(requireNotNull(liveInk));livePainter=DabPainter(op)
+        liveCanvas=Canvas(requireNotNull(liveInk)).also {c->op.selection?.let {c.clipPath(it.clipPath(p.width,p.height))}};livePainter=DabPainter(op)
         liveComposite=null;liveDirty=true;generation++
     }
     fun liveStamp(p:Project,op:Operation.Stroke,s:Stamp) {
@@ -100,6 +100,8 @@ class RasterRenderer(private val assets:AssetStore) : AutoCloseable {
     fun renderOperation(canvas:Canvas,p:Project,op:Operation) {
         when(op) {
             is Operation.Stroke -> {
+                val selectionSave=canvas.save()
+                op.selection?.let {canvas.clipPath(it.clipPath(p.width,p.height))}
                 if(op.engineVersion==1) {
                     val engine=BrushEngine(op.brush,op.seed,op.engineVersion) {s->
                         drawLegacyStamp(canvas,op,s)
@@ -123,6 +125,11 @@ class RasterRenderer(private val assets:AssetStore) : AutoCloseable {
                     // A hardware display list may use it later; do not clear that same bitmap again.
                     if(canvas.isHardwareAccelerated)replayBuffer=null
                 }
+                canvas.restoreToCount(selectionSave)
+            }
+            is Operation.Clear -> {
+                val save=canvas.save();canvas.clipPath(op.selection.clipPath(p.width,p.height))
+                canvas.drawColor(Color.TRANSPARENT,PorterDuff.Mode.CLEAR);canvas.restoreToCount(save)
             }
             is Operation.Image -> {
                 val bitmap=assets.load(op.asset)

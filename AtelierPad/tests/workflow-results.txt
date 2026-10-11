@@ -1,5 +1,6 @@
-PASS parsed workflow and syntax-checked 4 bash steps
-PASS project detection: .
-PASS project detection: AtelierPad
-PASS missing project fails explicitly
-PASS absent signing secret requires no key or repository changes
+PASS: workflow parsed; side-by-side is the default.
+PASS: 5 workflow shell commands passed bash -n.
+PASS: helper shell scripts passed bash -n.
+PASS: project discovery in repository root and AtelierPad/ subfolder; missing-project error.
+PASS: standalone android.yml equals workflow copy.
+NOTE: no real GitHub Actions execution, dependency download, APK build or signing occurred here.

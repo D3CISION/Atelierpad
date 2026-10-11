@@ -8,7 +8,8 @@ import hu.atelierpad.core.*
 import java.util.UUID
 import kotlin.math.*
 
-enum class Tool { BRUSH, ERASER, PICKER, FILL, PAN }
+enum class Tool { BRUSH, ERASER, PICKER, FILL, PAN, SELECT }
+enum class SelectionMode { LASSO, RECTANGLE, ELLIPSE }
 
 class DrawingView(
     context:Context,assets:AssetStore,
@@ -21,6 +22,27 @@ class DrawingView(
 ):View(context) {
     val renderer=RasterRenderer(assets)
     var onBrushChanged:(()->Unit)?=null
+    var onSelectionChanged:(()->Unit)?=null
+    var selectionMode=SelectionMode.LASSO
+    private var currentSelection:Selection?=null
+    private var selectionLayerId:String?=null
+    private var selecting=false
+    private var selectionPoints=ArrayList<SelectionPoint>()
+    fun activeSelection():Selection?=currentSelection.takeIf {selectionLayerId==project().layers[project().active].id}
+    fun clearSelection() {currentSelection=null;selectionLayerId=null;invalidate();onSelectionChanged?.invoke()}
+    fun setSelection(value:Selection?) {
+        value?.validate();currentSelection=value;selectionLayerId=if(value==null)null else project().layers[project().active].id
+        invalidate();onSelectionChanged?.invoke()
+    }
+    private fun selectionDraft():Selection? {
+        val first=selectionPoints.firstOrNull() ?: return null
+        val last=selectionPoints.last()
+        return when(selectionMode) {
+            SelectionMode.LASSO -> if(selectionPoints.size>=3)Selection(selectionPoints.toList()) else null
+            SelectionMode.RECTANGLE -> Selection.rectangle(first.x,first.y,last.x,last.y)
+            SelectionMode.ELLIPSE -> Selection.ellipse(first.x,first.y,last.x,last.y)
+        }
+    }
     var brush=Brush()
         set(value) { field=value;onBrushChanged?.invoke() }
     var color=Color.rgb(33,39,47)
@@ -83,6 +105,21 @@ class DrawingView(
             var y=step;while(y<p.height){canvas.drawLine(0f,y,p.width.toFloat(),y,paint);y+=step}
         }
         if(symmetry)canvas.drawLine(p.width/2f,0f,p.width/2f,p.height.toFloat(),Paint().apply{color=Color.argb(190,127,221,189);strokeWidth=1f/zoom;pathEffect=DashPathEffect(floatArrayOf(6f/zoom,6f/zoom),0f)})
+        val selected=if(selecting)selectionDraft() else activeSelection()
+        if(selected!=null) {
+            val save=canvas.save();canvas.clipRect(0,0,p.width,p.height)
+            canvas.concat(renderer.matrix(p,p.layers[p.active]))
+            val outline=selected.outlinePath()
+            val line=Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                style=Paint.Style.STROKE;strokeWidth=1.5f/(zoom*p.layers[p.active].scale)
+                color=Color.BLACK
+            }
+            canvas.drawPath(outline,line)
+            line.color=Color.WHITE
+            val unit=6f/(zoom*p.layers[p.active].scale)
+            line.pathEffect=DashPathEffect(floatArrayOf(unit,unit),0f)
+            canvas.drawPath(outline,line);canvas.restoreToCount(save)
+        }
         canvas.restore()
         if(hoverX>=0 && tool in listOf(Tool.BRUSH,Tool.ERASER)) {
             val paint=Paint(Paint.ANTI_ALIAS_FLAG).apply{style=Paint.Style.STROKE;strokeWidth=1.5f;color=Color.WHITE}
@@ -112,22 +149,44 @@ class DrawingView(
         activePointer=e.getPointerId(i);activeStylus=stylus(e,i);strokeTime=e.eventTime
         if(activeStylus)requestUnbufferedDispatch(e)
         if(tool==Tool.PICKER || tool==Tool.FILL) {pendingTap=tool;return}
+        if(tool==Tool.SELECT) {
+            activeLayerId=l.id;selecting=true;selectionPoints=ArrayList()
+            add(sample(e,i));parent?.requestDisallowInterceptTouchEvent(true);return
+        }
         if(l.locked || !l.visible) {message("Select a visible, unlocked layer.");activePointer=-1;return}
         val count=p.layers.sumOf{layer->layer.operations.sumOf{if(it is Operation.Stroke)it.samples.size else 0}}
         if(count>=580000) {message("Project stroke limit reached. Export a backup before simplifying layers.");activePointer=-1;return}
         activeLayerId=l.id;samples=ArrayList()
-        val op=Operation.Stroke(brush=brush,color=color,eraser=tool==Tool.ERASER || e.getToolType(i)==MotionEvent.TOOL_TYPE_ERASER,alphaLock=l.alphaLock,mirrored=symmetry,seed=System.nanoTime(),samples=emptyList())
+        val op=Operation.Stroke(brush=brush,color=color,eraser=tool==Tool.ERASER || e.getToolType(i)==MotionEvent.TOOL_TYPE_ERASER,alphaLock=l.alphaLock,mirrored=symmetry,seed=System.nanoTime(),samples=emptyList(),selection=activeSelection())
         stroke=op;renderer.begin(p,l,op)
         engine=BrushEngine(op.brush,op.seed){renderer.liveStamp(p,op,it)}
         add(sample(e,i));parent.requestDisallowInterceptTouchEvent(true)
     }
     private fun add(s:Sample) {
+        if(selecting) {
+            val next=SelectionPoint(s.x,s.y)
+            val previous=selectionPoints.lastOrNull()
+            if(previous==null || hypot(next.x-previous.x,next.y-previous.y)>=.5f) {
+                if(selectionMode!=SelectionMode.LASSO && selectionPoints.size>=2)selectionPoints.removeAt(1)
+                if(selectionPoints.size>=2048)selectionPoints=ArrayList(selectionPoints.filterIndexed {i,_->i%2==0})
+                selectionPoints.add(next)
+            }
+            return
+        }
         if(samples.size>=20000)return
         val last=samples.lastOrNull()
         if(last!=null && last.x==s.x && last.y==s.y && last.pressure==s.pressure)return
         samples.add(s);engine?.add(s)
     }
     fun finishStroke(cancel:Boolean=false) {
+        var selectionCompleted=false
+        if(selecting && !cancel) {
+            val next=selectionDraft()
+            if(next!=null && next.points.maxOf {it.x}-next.points.minOf {it.x}>1f && next.points.maxOf {it.y}-next.points.minOf {it.y}>1f) {
+                currentSelection=next;selectionLayerId=activeLayerId;selectionCompleted=true
+            }
+        }
+        selecting=false;selectionPoints=ArrayList()
         val template=stroke
         if(template!=null) {
             if(!cancel && samples.isNotEmpty()) {
@@ -143,6 +202,7 @@ class DrawingView(
         }
         stroke=null;engine=null;samples=ArrayList();activeLayerId=null;activePointer=-1;activeStylus=false;pendingTap=null
         parent?.requestDisallowInterceptTouchEvent(false);invalidate()
+        if(selectionCompleted)onSelectionChanged?.invoke()
     }
     private fun finishTap(e:MotionEvent,i:Int,cancel:Boolean) {
         val t=pendingTap
@@ -178,7 +238,7 @@ class DrawingView(
         if(activePointer>=0) {
             val i=e.findPointerIndex(activePointer)
             if(i>=0 && action==MotionEvent.ACTION_MOVE) {
-                if(stroke!=null) {for(h in 0 until e.historySize)add(sample(e,i,h));add(sample(e,i))}
+                if(stroke!=null || selecting) {for(h in 0 until e.historySize)add(sample(e,i,h));add(sample(e,i))}
             }
             if((action==MotionEvent.ACTION_UP || action==MotionEvent.ACTION_POINTER_UP) && e.getPointerId(ai)==activePointer) {
                 if(pendingTap!=null)finishTap(e,ai,canceled) else {
@@ -192,7 +252,7 @@ class DrawingView(
                 gestureStarted=false;gestureMax=0
             }
         } else if(action==MotionEvent.ACTION_MOVE && !suppressFingers) {
-            val fingers=(0 until e.pointerCount).filter{!stylus(e,it)}
+            val fingers=(0 until e.pointerCount).filter{!stylus(e,it) || tool==Tool.PAN}
             if(fingers.size>=2 || (fingers.size==1 && tool==Tool.PAN)) {
                 val i=fingers[0];val j=if(fingers.size>1)fingers[1] else i
                 val mx=(e.getX(i)+e.getX(j))/2;val my=(e.getY(i)+e.getY(j))/2

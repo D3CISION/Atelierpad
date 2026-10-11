@@ -34,7 +34,7 @@ PASS new flow and pressure smoothing brush settings round trip
 PASS clipping metadata round trip
 PASS every blending mode round trips
 PASS legacy blending mode ordinal values unchanged
-PASS v2 document version marker
+PASS v3 document version marker
 PASS finished curve ends at pen-up position
 PASS midpoint curve rounds an abrupt corner
 PASS stroke finish is idempotent
@@ -57,5 +57,28 @@ PASS solid ink branch excludes scatter and pressure-opacity brushes
 PASS every bundled brush is valid
 PASS clipping toggle is undoable
 PASS mixed engine undo history keeps version identifiers
+PASS rectangle selection normalizes drag direction
+PASS inverted selection has complementary membership
+PASS rectangle raster mask area is exact
+PASS ellipse keeps center and excludes corners
+PASS scanline rasterizer matches polygon containment
+PASS selection outside canvas produces empty mask
+PASS selection validation rejects fewer than three vertices
+PASS selection validation rejects nonfinite and excessive coordinates
+PASS selection vertex limit is enforced
+PASS selection pixel limit is enforced
+PASS selection constraints round trip with strokes
+PASS clear selection operation round trips
+PASS clear selection is undoable without losing strokes
+PASS actual v2 fixture loads without invented selection
+PASS clear operations cannot share an operation id
+PASS selection contributes to history memory accounting
+PASS flood fill cannot cross an unselected corridor
+PASS flood fill outside selection is empty
+PASS flood fill rejects wrong selection mask size
+PASS size slider endpoints and out of range progress
+PASS size slider is monotonic and round trips
+PASS opacity slider is bounded and round trips
+PASS slider mapping handles invalid persisted values
 
-59 core tests passed; Android device/instrumentation tests are separate.
+82 core tests passed; Android device/instrumentation tests are separate.

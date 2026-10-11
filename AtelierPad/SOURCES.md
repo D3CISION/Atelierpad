@@ -21,3 +21,9 @@ or proprietary application code is included.
 - GitHub workflow syntax and secrets:
   https://docs.github.com/en/actions/writing-workflows/workflow-syntax-for-github-actions
   https://docs.github.com/en/actions/security-for-github-actions/security-guides/using-secrets-in-github-actions
+
+Additional references for 0.3:
+- Android ViewGroup touch ownership and requestDisallowInterceptTouchEvent:
+  https://developer.android.com/develop/ui/views/touch-and-input/gestures/viewgroup
+- Native SeekBar input and accessibility:
+  https://developer.android.com/reference/android/widget/SeekBar

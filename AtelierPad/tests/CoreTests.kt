@@ -82,9 +82,9 @@ fun runCoreRegression(fixture:(String)->ByteArray):Int {
     test("legacy blending mode ordinal values unchanged") {
         check(Mixing.values().take(5)==listOf(Mixing.NORMAL,Mixing.MULTIPLY,Mixing.SCREEN,Mixing.OVERLAY,Mixing.ADD))
     }
-    test("v2 document version marker") {
+    test("v3 document version marker") {
         val out=ByteArrayOutputStream();ProjectArchive.writeDocument(DataOutputStream(out),Project())
-        val input=DataInputStream(ByteArrayInputStream(out.toByteArray()));input.readInt();check(input.readInt()==2)
+        val input=DataInputStream(ByteArrayInputStream(out.toByteArray()));input.readInt();check(input.readInt()==3)
     }
     fun dabs(brush:Brush,points:List<Sample>,seed:Long=7):List<Stamp> {
         val out=mutableListOf<Stamp>();val e=BrushEngine(brush,seed){out+=it}
@@ -171,6 +171,100 @@ fun runCoreRegression(fixture:(String)->ByteArray):Int {
         val p=Project(layers=listOf(Layer(operations=listOf(stroke.copy(engineVersion=1)))))
         val h=ProjectHistory(p);h.commit(p.copy(layers=listOf(p.layers[0].copy(operations=p.layers[0].operations+stroke.copy(id=java.util.UUID.randomUUID().toString())))),"new ink")
         h.undo();check((h.current.layers[0].operations[0] as Operation.Stroke).engineVersion==1)
+    }
+
+    test("rectangle selection normalizes drag direction") {
+        val r=Selection.rectangle(50f,45f,10f,5f);r.validate()
+        check(r.contains(20f,20f));check(!r.contains(5f,20f))
+        check(r==Selection.rectangle(10f,5f,50f,45f))
+    }
+    test("inverted selection has complementary membership") {
+        val r=Selection.rectangle(8f,8f,40f,40f)
+        for(y in 0..63)for(x in 0..63)check(r.contains(x+.5f,y+.5f)!=r.copy(inverted=true).contains(x+.5f,y+.5f))
+    }
+    test("rectangle raster mask area is exact") {
+        check(Selection.rectangle(8f,8f,40f,40f).rasterMask(64,64).count{it}==32*32)
+    }
+    test("ellipse keeps center and excludes corners") {
+        val e=Selection.ellipse(0f,0f,64f,32f);e.validate()
+        check(e.contains(32f,16f));check(!e.contains(1f,1f));check(e.points.size==96)
+    }
+    test("scanline rasterizer matches polygon containment") {
+        val shapes=listOf(Selection.rectangle(-3.4f,10.1f,48.8f,59.9f),
+            Selection.ellipse(3.1f,-9.2f,55.7f,60.4f),
+            Selection(listOf(SelectionPoint(0f,0f),SelectionPoint(60f,60f),SelectionPoint(0f,60f),SelectionPoint(60f,0f))),
+            Selection(listOf(SelectionPoint(-10f,15f),SelectionPoint(40f,3f),SelectionPoint(61f,37f),SelectionPoint(10f,52f))))
+        for(shape in shapes)for(invert in listOf(false,true)) {
+            val r=shape.copy(inverted=invert);val mask=r.rasterMask(64,64)
+            for(y in 0 until 64)for(x in 0 until 64)check(mask[y*64+x]==r.contains(x+.5f,y+.5f))
+        }
+    }
+    test("selection outside canvas produces empty mask") {
+        val s=Selection.rectangle(-20f,-20f,-10f,-10f)
+        check(s.rasterMask(64,64).none{it});check(s.copy(inverted=true).rasterMask(64,64).all{it})
+    }
+    test("selection validation rejects fewer than three vertices") {fails{Selection(listOf(SelectionPoint(1f,1f))).validate()}}
+    test("selection validation rejects nonfinite and excessive coordinates") {
+        fails{Selection.rectangle(Float.NaN,0f,20f,20f).validate()}
+        fails{Selection.rectangle(0f,0f,Float.POSITIVE_INFINITY,20f).validate()}
+        fails{Selection.rectangle(0f,0f,100001f,20f).validate()}
+    }
+    test("selection vertex limit is enforced") {fails{Selection(List(2049){SelectionPoint(it.toFloat(),1f)}).validate()}}
+    test("selection pixel limit is enforced") {fails{Selection.rectangle(0f,0f,1f,1f).rasterMask(4096,4096)}}
+    test("selection constraints round trip with strokes") {
+        val op=stroke.copy(selection=Selection.rectangle(2f,3f,42f,53f).copy(inverted=true))
+        val p=Project(layers=listOf(Layer(operations=listOf(op))))
+        check(ProjectArchive.read(ByteArrayInputStream(archive(p))).project==p)
+    }
+    test("clear selection operation round trips") {
+        val p=Project(layers=listOf(Layer(operations=listOf(stroke,Operation.Clear(selection=Selection.ellipse(0f,0f,55f,35f))))))
+        check(ProjectArchive.read(ByteArrayInputStream(archive(p))).project==p);check(p.assets().isEmpty())
+    }
+    test("clear selection is undoable without losing strokes") {
+        val p=Project(layers=listOf(Layer(operations=listOf(stroke))))
+        val h=ProjectHistory(p)
+        h.commit(p.copy(layers=listOf(p.layers[0].copy(operations=p.layers[0].operations+Operation.Clear(selection=Selection.rectangle(0f,0f,40f,40f))))),"clear")
+        check(h.undo());check(h.current==p);check(h.redo());check(h.current.layers[0].operations.last() is Operation.Clear)
+    }
+    test("actual v2 fixture loads without invented selection") {
+        val p=ProjectArchive.read(ByteArrayInputStream(fixture("legacy-v2.atelier"))).project
+        val op=p.layers.single().operations.single() as Operation.Stroke
+        check(op.engineVersion==2 && op.selection==null && op.brush.flow==.65f)
+        check(ProjectArchive.read(ByteArrayInputStream(archive(p))).project==p)
+    }
+    test("clear operations cannot share an operation id") {
+        val c=Operation.Clear(selection=Selection.rectangle(0f,0f,20f,20f))
+        fails{Project(layers=listOf(Layer(operations=listOf(c,c)))).validate()}
+    }
+    test("selection contributes to history memory accounting") {
+        val p=Project(layers=listOf(Layer(operations=listOf(stroke))))
+        val n=p.copy(layers=listOf(Layer(operations=listOf(stroke.copy(selection=Selection.ellipse(0f,0f,50f,50f))))))
+        check(n.estimatedModelBytes()>p.estimatedModelBytes())
+    }
+    test("flood fill cannot cross an unselected corridor") {
+        val allowed=BooleanArray(15){it%5!=2}
+        val mask=FloodFill.mask(IntArray(15),5,3,0,1,0,allowed)
+        check(mask.count{it}==6);check((0..2).all{y->!mask[y*5+4]})
+    }
+    test("flood fill outside selection is empty") {
+        check(FloodFill.mask(IntArray(16),4,4,0,0,0,BooleanArray(16)).none{it})
+    }
+    test("flood fill rejects wrong selection mask size") {fails{FloodFill.mask(IntArray(16),4,4,0,0,0,BooleanArray(15))}}
+    test("size slider endpoints and out of range progress") {
+        check(SliderScale.sizeAt(0)==1f && SliderScale.sizeAt(1000)==240f)
+        check(SliderScale.sizeAt(-5)==1f && SliderScale.sizeAt(2000)==240f)
+    }
+    test("size slider is monotonic and round trips") {
+        for(i in 0..1000)check(abs(SliderScale.sizeProgress(SliderScale.sizeAt(i))-i)<=1)
+        check((0..999).all{SliderScale.sizeAt(it+1)>SliderScale.sizeAt(it)})
+    }
+    test("opacity slider is bounded and round trips") {
+        for(i in 0..1000)check(abs(SliderScale.opacityProgress(SliderScale.opacityAt(i))-i)<=1)
+        check(SliderScale.opacityAt(-5)==.01f);check(SliderScale.opacityAt(5000)==1f)
+    }
+    test("slider mapping handles invalid persisted values") {
+        check(SliderScale.sizeProgress(Float.NaN)==0);check(SliderScale.sizeProgress(-100f)==0)
+        check(SliderScale.sizeProgress(1000f)==1000);check(SliderScale.opacityProgress(Float.POSITIVE_INFINITY)==0)
     }
     println("\n$passed core tests passed; Android device/instrumentation tests are separate.")
     return passed

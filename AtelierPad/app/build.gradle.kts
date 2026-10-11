@@ -1,13 +1,15 @@
 plugins { id("com.android.application"); id("org.jetbrains.kotlin.android") }
+val sideBySide = providers.gradleProperty("atelierSideBySide").orNull == "true"
 android {
     namespace = "hu.atelierpad.app"
     compileSdk = 35
     defaultConfig {
-        applicationId = "hu.atelierpad.app"
+        applicationId = if (sideBySide) "hu.atelierpad.app.preview03" else "hu.atelierpad.app"
+        resValue("string", "app_name", if (sideBySide) "Atelier Pad 0.3" else "Atelier Pad")
         minSdk = 29
         targetSdk = 35
-        versionCode = 2
-        versionName = "0.2.0-alpha"
+        versionCode = 3
+        versionName = "0.3.0-alpha"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }

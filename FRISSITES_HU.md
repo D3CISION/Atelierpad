@@ -1,11 +1,12 @@
-# Atelier Pad 0.2 - frissítés
+# Atelier Pad 0.3 frissítés
 
-A ZIP forráskód, nem APK. Először exportáld a fontos rajzokat .atelier fájlként.
+A teljes AtelierPad/ projektmappát frissítsd, az új fájlokkal együtt.
+A .github/workflows/android.yml helyére a mellékelt android.yml kerüljön.
+Csak egy aktív workflow maradjon; a régi main.yml ne kerüljön vissza.
 
-Frissítsd a repó **AtelierPad/** mappáját a ZIP azonos mappájával, minden új Kotlin-, XML- és tesztfájllal. A gyökérben cseréld a **.github/workflows/android.yml** fájlt. Ne hozz vissza egy második main.yml workflow-t. Nem elég csak az YML cseréje.
+Actions > Atelier Pad 0.3 APK > Run workflow > install_mode: side-by-side.
+Az app a régi mellé települ "Atelier Pad 0.3" néven. Nem kell a régit törölni.
+A korábbi galériát nem veszi át automatikusan: export/import .atelier fájllal.
 
-Commit, majd Actions > Atelier Pad 0.2 APK > Run workflow. Sikeres fordításkor az APK az AtelierPad-0.2-debug artifactban lesz.
-
-Az új debug aláírás miatt előfordulhat, hogy újratelepítés szükséges. Eltávolítás előtt legyen ellenőrzött külső mentésed: a helyi galéria törlődik.
-
-Részletek: AtelierPad/README_HU.md. 59 Kotlin-alapellenőrzés lefutott, de az APK-fordítás és a tabletes teszt itt nem történt meg.
+APK artifact: AtelierPad-0.3-debug. A csomag jelenleg forráskód, nem APK.
+Részletes útmutató: AtelierPad/README_HU.md.

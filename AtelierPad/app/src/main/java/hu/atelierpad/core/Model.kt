@@ -63,8 +63,10 @@ sealed class Operation {
         override val id: String = UUID.randomUUID().toString(),
         val brush: Brush, val color: Int, val eraser: Boolean, val alphaLock: Boolean,
         val mirrored: Boolean, val seed: Long, val samples: List<Sample>,
-        val engineVersion: Int = 2
+        val engineVersion: Int = 2,
+        val selection: Selection? = null
     ) : Operation()
+    data class Clear(override val id:String = UUID.randomUUID().toString(), val selection:Selection):Operation()
     data class Image(
         override val id: String = UUID.randomUUID().toString(),
         val asset: String, val x: Float, val y: Float, val width: Float, val height: Float
@@ -93,6 +95,7 @@ data class Project(
         require(layers.map { it.id }.distinct().size == layers.size)
         var count = 0L
         var points = 0L
+        var selectionPoints = 0L
         val ids = HashSet<String>()
         layers.forEach { l ->
             require(UUID_PATTERN.matches(l.id) && l.name.length in 1..120)
@@ -108,8 +111,10 @@ data class Project(
                     is Operation.Stroke -> {
                         op.brush.validate(); require(op.samples.isNotEmpty()); require(op.engineVersion in 1..2)
                         points += op.samples.size
+                        op.selection?.let { it.validate();selectionPoints+=it.points.size }
                         require(op.samples.all { it.valid() })
                     }
+                    is Operation.Clear -> {op.selection.validate();selectionPoints+=op.selection.points.size}
                     is Operation.Image -> {
                         require(Brush.ASSET_ID.matches(op.asset))
                         require(op.x.isFinite() && op.y.isFinite() && abs(op.x) <= 20000 && abs(op.y) <= 20000)
@@ -118,13 +123,13 @@ data class Project(
                 }
             }
         }
-        require(count <= 20_000 && points <= 600_000) { "Project operation limit reached" }
+        require(count <= 20_000 && points <= 600_000 && selectionPoints <= 300_000) { "Project operation limit reached" }
     }
     fun assets(): Set<String> = layers.flatMap { it.operations }.mapNotNull {
-        when(it) { is Operation.Image -> it.asset; is Operation.Stroke -> it.brush.asset }
+        when(it) { is Operation.Image -> it.asset; is Operation.Stroke -> it.brush.asset; is Operation.Clear -> null }
     }.toSet()
     fun estimatedModelBytes(): Long = layers.sumOf { l -> l.operations.sumOf { op ->
-        when(op) { is Operation.Stroke -> 256L + op.samples.size * 32L; is Operation.Image -> 192L }
+        when(op) { is Operation.Stroke -> 256L + op.samples.size * 32L + (op.selection?.points?.size ?: 0)*8L; is Operation.Image -> 192L; is Operation.Clear -> 64L+op.selection.points.size*8L }
     }}
     companion object { val UUID_PATTERN = Regex("[a-fA-F0-9-]{36}") }
 }

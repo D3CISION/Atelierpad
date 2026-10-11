@@ -2,6 +2,8 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 VERSION=8.11.1
+PARALLEL="${ATELIER_PARALLEL:-true}"
+[[ "$PARALLEL" == true || "$PARALLEL" == false ]] || { echo "ATELIER_PARALLEL must be true or false" >&2; exit 1; }
 BASE="https://services.gradle.org/distributions/gradle-${VERSION}-bin.zip"
 CACHE="${GRADLE_USER_HOME:-$HOME/.gradle}/atelier-bootstrap"
 GRADLE="$CACHE/gradle-$VERSION/bin/gradle"
@@ -27,6 +29,7 @@ if [ ! -x "$GRADLE" ]; then
 fi
 cd "$ROOT"
 "$GRADLE" --no-daemon wrapper --gradle-version "$VERSION" --distribution-type bin
-"$GRADLE" --no-daemon :app:testDebugUnitTest :app:assembleDebug :app:assembleDebugAndroidTest
+"$GRADLE" --no-daemon -PatelierSideBySide="$PARALLEL" :app:testDebugUnitTest :app:assembleDebug :app:assembleDebugAndroidTest
 printf '\nAPK: %s/app/build/outputs/apk/debug/app-debug.apk\n' "$ROOT"
+printf 'Side-by-side install: %s\n' "$PARALLEL"
 printf 'Android instrumented tests are compiled, but not run by this script.\n'

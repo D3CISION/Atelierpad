@@ -6,7 +6,7 @@ import java.util.zip.*
 
 /** Versioned ZIP container, deliberately independent of Android and thoroughly bounded. */
 object ProjectArchive {
-    const val VERSION = 2
+    const val VERSION = 3
     const val MAX_BYTES = 96 * 1024 * 1024
     data class Loaded(val project: Project, val assets: Map<String,ByteArray>)
     fun hash(bytes:ByteArray):String = MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }
@@ -71,8 +71,11 @@ object ProjectArchive {
                     is Operation.Stroke -> {
                         d.writeByte(1);d.writeUTF(op.id);writeBrush(d,op.brush)
                         d.writeInt(op.color);d.writeBoolean(op.eraser);d.writeBoolean(op.alphaLock);d.writeBoolean(op.mirrored)
-                        d.writeLong(op.seed);d.writeInt(op.engineVersion);d.writeInt(op.samples.size)
+                        d.writeLong(op.seed);d.writeInt(op.engineVersion);writeSelection(d,op.selection);d.writeInt(op.samples.size)
                         op.samples.forEach { s -> d.writeFloat(s.x);d.writeFloat(s.y);d.writeFloat(s.pressure);d.writeLong(s.timeMillis) }
+                    }
+                    is Operation.Clear -> {
+                        d.writeByte(3);d.writeUTF(op.id);writeSelection(d,op.selection)
                     }
                     is Operation.Image -> {
                         d.writeByte(2);d.writeUTF(op.id);d.writeUTF(op.asset)
@@ -89,7 +92,7 @@ object ProjectArchive {
         require(w in 64..4096 && h in 64..4096 && w.toLong()*h<=12_000_000)
         val bg=d.readInt();val transparent=d.readBoolean();val active=d.readInt()
         val n=d.readInt();require(n in 1..32)
-        var ops=0;var points=0
+        var ops=0;var points=0;var selectionPoints=0
         val layers=List(n) {
             val lid=d.readUTF();val name=d.readUTF();val visible=d.readBoolean();val locked=d.readBoolean();val alpha=d.readBoolean()
             val opacity=d.readFloat();val blend=d.readInt();require(blend in Mixing.values().indices)
@@ -102,10 +105,18 @@ object ProjectArchive {
                         val oid=d.readUTF();val brush=readBrush(d,version);val color=d.readInt();val erase=d.readBoolean()
                         val a=d.readBoolean();val mirror=d.readBoolean();val seed=d.readLong()
                         val engine=if(version>=2)d.readInt() else 1;require(engine in 1..2)
+                        val selection=if(version>=3)readSelection(d) else null
+                        selectionPoints+=selection?.points?.size ?: 0;require(selectionPoints<=300_000)
                         val pc=d.readInt();require(pc in 1..600_000);points+=pc;require(points<=600_000)
-                        Operation.Stroke(oid,brush,color,erase,a,mirror,seed,List(pc) { Sample(d.readFloat(),d.readFloat(),d.readFloat(),if(version>=2)d.readLong() else 0L) },engine)
+                        Operation.Stroke(oid,brush,color,erase,a,mirror,seed,List(pc) { Sample(d.readFloat(),d.readFloat(),d.readFloat(),if(version>=2)d.readLong() else 0L) },engine,selection)
                     }
                     2 -> Operation.Image(d.readUTF(),d.readUTF(),d.readFloat(),d.readFloat(),d.readFloat(),d.readFloat())
+                    3 -> {
+                        require(version>=3)
+                        val oid=d.readUTF();val selection=requireNotNull(readSelection(d))
+                        selectionPoints+=selection.points.size;require(selectionPoints<=300_000)
+                        Operation.Clear(oid,selection)
+                    }
                     else -> error("Unknown operation")
                 }
             }
@@ -113,6 +124,18 @@ object ProjectArchive {
         }
         require(d.read()==-1) { "Trailing document data" }
         return Project(id,title,w,h,dpi,bg,transparent,layers,active).also { it.validate() }
+    }
+    private fun writeSelection(d:DataOutputStream,s:Selection?) {
+        d.writeBoolean(s!=null)
+        if(s!=null) {
+            s.validate();d.writeBoolean(s.inverted);d.writeInt(s.points.size)
+            s.points.forEach {d.writeFloat(it.x);d.writeFloat(it.y)}
+        }
+    }
+    private fun readSelection(d:DataInputStream):Selection? {
+        if(!d.readBoolean())return null
+        val inverse=d.readBoolean();val count=d.readInt();require(count in 3..2048)
+        return Selection(List(count){SelectionPoint(d.readFloat(),d.readFloat())},inverse).also {it.validate()}
     }
     fun writeBrush(d:DataOutputStream,b:Brush) {
         d.writeUTF(b.name);d.writeInt(b.tip.ordinal)

@@ -1,5 +1,8 @@
 $ErrorActionPreference = 'Stop'
 $Version = '8.11.1'
+$Parallel = if ($env:ATELIER_PARALLEL) { $env:ATELIER_PARALLEL } else { 'true' }
+$Parallel = $Parallel.ToLowerInvariant()
+if ($Parallel -notin @('true','false')) { throw 'ATELIER_PARALLEL must be true or false.' }
 $Root = Split-Path $PSScriptRoot -Parent
 $Base = "https://services.gradle.org/distributions/gradle-$Version-bin.zip"
 if (-not $env:ANDROID_HOME) {
@@ -33,8 +36,9 @@ Push-Location $Root
 try {
     & $Gradle --no-daemon wrapper --gradle-version $Version --distribution-type bin
     if ($LASTEXITCODE -ne 0) { throw 'Gradle wrapper generation failed.' }
-    & $Gradle --no-daemon :app:testDebugUnitTest :app:assembleDebug :app:assembleDebugAndroidTest
+    & $Gradle --no-daemon "-PatelierSideBySide=$Parallel" :app:testDebugUnitTest :app:assembleDebug :app:assembleDebugAndroidTest
     if ($LASTEXITCODE -ne 0) { throw 'Android build failed. See the error output above.' }
     Write-Host "APK: $Root\app\build\outputs\apk\debug\app-debug.apk"
+    Write-Host "Side-by-side install: $Parallel"
     Write-Host 'Android instrumented tests are compiled but not run by this script.'
 } finally { Pop-Location }

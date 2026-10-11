@@ -1,29 +1,35 @@
-# Development APK signing and safe updates
+# Development APK signing and safe installation
 
-This is a debug build, not a Play Store release. Its applicationId remains
-`hu.atelierpad.app`; versionCode is 2.
+## Default in 0.3: side-by-side
 
-## Before installing
+The workflow and build helper scripts default to a separate app:
+`hu.atelierpad.app.preview03`, displayed as **Atelier Pad 0.3**, versionCode=3.
+This avoids overwriting an installed 0.1/0.2 (`hu.atelierpad.app`). It does not
+share that app's private gallery. Transfer art via externally exported .atelier files.
+No private signing key is included in this source archive.
 
-Export every important drawing from the old app as an external `.atelier`
-file, preferably with a PNG copy too. Verify the exported files exist outside
-the app's private storage. Keep the original v1 exports: v2 can read them,
-but v1 cannot read a project saved by v2.
+## In-place update
 
-Try installing the new APK as an update first. Android requires an update to
-have a compatible signing certificate. A new GitHub hosted runner can generate
-a different debug signing key. If installation reports a signature conflict,
-do not delete the old app until your external backups are complete. Uninstalling
-removes the private gallery. After reinstalling, use Gallery > Open .atelier file.
-The original private signing key cannot be recovered from an APK.
+The workflow's `install_mode: update`, or a direct Gradle build without
+`-PatelierSideBySide=true`, uses `hu.atelierpad.app`. This ONLY updates an old
+installation when the signing certificate is compatible. Raising versionCode
+does not fix a signing mismatch. A new key cannot recover a lost original key.
 
-## Optional: keep the same debug key for subsequent CI builds
+All subsequent builds of the separate 0.3 app ALSO need the same key to update
+that 0.3 installation. Side-by-side is not a permanent signing-key solution.
+Never uninstall a drawing app without checked external .atelier backups.
+Keep original v1/v2 exports: v3 saves cannot be read by the older applications.
 
-The workflow accepts one optional GitHub Actions repository secret:
-`ATELIER_DEBUG_KEYSTORE_BASE64`. With no secret it still builds normally.
+## Optional stable CI debug key
 
-On a trusted local computer, use an existing development debug keystore, or
-create one for future builds with JDK keytool:
+Set the repository Actions secret `ATELIER_DEBUG_KEYSTORE_BASE64` to a base64
+encoding of your own development debug keystore. The workflow restores it at
+`$HOME/.android/debug.keystore`. Without the secret it builds with a freshly
+generated runner debug key and prints a warning. An existing installation's
+private key cannot be extracted from its APK.
+
+Create a key once on a trusted local computer, or use the existing key if you
+have it. Keep an offline private backup. For a new development key with JDK:
 
 ```sh
 keytool -genkeypair -keystore atelier-debug.keystore -storetype JKS \
@@ -32,27 +38,18 @@ keytool -genkeypair -keystore atelier-debug.keystore -storetype JKS \
   -dname "CN=Atelier Pad Development,O=Development,C=HU"
 ```
 
-Base64-encode the file locally and copy the result to the repository secret.
-For example, on Linux:
-
+Linux encoding:
 ```sh
 base64 -w 0 atelier-debug.keystore
 ```
 
-On Windows PowerShell:
-
+Windows PowerShell encoding:
 ```powershell
 [Convert]::ToBase64String([IO.File]::ReadAllBytes((Resolve-Path .\atelier-debug.keystore)))
 ```
 
-Treat the key and its base64 representation as private. Do not commit them,
-attach them to an issue, print them in CI logs, or put them in a shared Actions
-cache. Base64 is encoding, not encryption. Keep a secure backup of the key.
+Do not commit, send in chat, attach to an issue, log or publicly cache the key
+or its base64 representation. Base64 is not encryption. The conventional debug
+passwords above are not a production release-signing strategy.
 
-The optional workflow step restores it at `$HOME/.android/debug.keystore`,
-checks the alias and lets Android Gradle Plugin use the standard debug signing
-configuration. The standard debug passwords above are only suitable for this
-private development process. A public release needs a separate release-signing
-strategy. Setting a new key now does not make it match a lost key from v1.
-
-Reference: https://developer.android.com/studio/publish/app-signing
+Official reference: https://developer.android.com/studio/publish/app-signing

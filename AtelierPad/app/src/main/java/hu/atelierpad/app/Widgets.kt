@@ -1,5 +1,7 @@
 package hu.atelierpad.app
 
+import android.app.AlertDialog
+import android.text.InputType
 import android.content.Context
 import android.content.res.ColorStateList
 import android.graphics.*
@@ -40,24 +42,59 @@ fun Context.styleIcon(button:ImageButton,active:Boolean) {
     button.background=RippleDrawable(ColorStateList.valueOf(0x337fa99a),rounded(if(active)Theme.accent else Theme.card,dp(13).toFloat()),null)
     button.isSelected=active
 }
-fun Context.column(padding:Int=0)=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(padding),dp(padding),dp(padding),dp(padding))}
-fun Context.row()=LinearLayout(this).apply{orientation=LinearLayout.HORIZONTAL;gravity=Gravity.CENTER_VERTICAL}
+fun Context.column(padding:Int=0)=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;isMotionEventSplittingEnabled=true;setPadding(dp(padding),dp(padding),dp(padding),dp(padding))}
+fun Context.row()=LinearLayout(this).apply{orientation=LinearLayout.HORIZONTAL;isMotionEventSplittingEnabled=true;gravity=Gravity.CENTER_VERTICAL}
 fun LinearLayout.gap(n:Int) {addView(View(context),LinearLayout.LayoutParams(1,context.dp(n)))}
 fun LinearLayout.section(title:String) {gap(18);addView(context.label(title.uppercase(),11f,Theme.muted));gap(10)}
+/** Numeric entry uses a fresh value, validates finite bounds and never accepts NaN. */
+fun Context.numberDialog(title:String,min:Float,max:Float,value:Float,change:(Float)->Unit) {
+    val input=edit(String.format(java.util.Locale.US,"%.3f",value).trimEnd('0').trimEnd('.'))
+    input.inputType=InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL or InputType.TYPE_NUMBER_FLAG_SIGNED
+    val box=column(20);box.addView(input);box.addView(label("Range: $min - $max",12f,Theme.muted))
+    val dialog=AlertDialog.Builder(this).setTitle(title).setView(box)
+        .setPositiveButton("Apply",null).setNegativeButton("Cancel",null).create()
+    dialog.setOnShowListener {
+        input.requestFocus();input.selectAll()
+        dialog.window?.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_VISIBLE)
+        dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+            val n=input.text.toString().trim().replace(',','.').toFloatOrNull()
+            if(n==null || !n.isFinite() || n !in min..max)input.error="Enter a value between $min and $max"
+            else {change(n);dialog.dismiss()}
+        }
+    }
+    dialog.show()
+}
 fun Context.slider(parent:LinearLayout,title:String,min:Float,max:Float,value:Float,format:(Float)->String={"${it.roundToInt()}"},change:(Float)->Unit) {
-    val head=row();head.addView(label(title,13f),LinearLayout.LayoutParams(0,dp(28),1f))
-    val amount=label(format(value),12f,Theme.accent);head.addView(amount);parent.addView(head)
-    val seek=SeekBar(this).apply{
-        this.max=1000;progress=(((value-min)/(max-min))*1000).roundToInt().coerceIn(0,1000)
+    require(max>min && value.isFinite())
+    var current=value.coerceIn(min,max)
+    val head=row();head.addView(label(title,13f),LinearLayout.LayoutParams(0,dp(44),1f))
+    val amount=label(format(current),12f,Theme.accent).apply {
+        gravity=Gravity.CENTER;minWidth=dp(64);minHeight=dp(44)
+        contentDescription="$title: enter exact value";tooltipText="Tap to enter a number";isFocusable=true
+        setPadding(dp(6),0,dp(6),0)
+    }
+    head.addView(amount);parent.addView(head)
+    val seek=TouchSeekBar(this).apply {
+        this.max=1000;progress=(((current-min)/(max-min))*1000).roundToInt().coerceIn(0,1000)
         progressTintList=ColorStateList.valueOf(Theme.accent);thumbTintList=ColorStateList.valueOf(Theme.accent)
-        contentDescription=title;minimumHeight=dp(36)
+        contentDescription=title
         setOnSeekBarChangeListener(object:SeekBar.OnSeekBarChangeListener {
-            override fun onProgressChanged(s:SeekBar?,p:Int,fromUser:Boolean) {if(fromUser){val v=min+(max-min)*p/1000;amount.text=format(v);change(v)}}
+            override fun onProgressChanged(s:SeekBar?,p:Int,fromUser:Boolean) {
+                if(fromUser){current=min+(max-min)*p/1000f;amount.text=format(current);change(current)}
+            }
             override fun onStartTrackingTouch(s:SeekBar?){}
             override fun onStopTrackingTouch(s:SeekBar?){}
         })
     }
-    parent.addView(seek,LinearLayout.LayoutParams(-1,dp(40)))
+    amount.setOnClickListener {
+        val scale=if(format(current).trim().endsWith("%"))100f else 1f
+        numberDialog(if(scale==100f)"$title (%)" else title,min*scale,max*scale,current*scale) {entered->
+            val n=(entered/scale).coerceIn(min,max)
+            current=n;seek.progress=(((n-min)/(max-min))*1000).roundToInt().coerceIn(0,1000)
+            amount.text=format(n);change(n)
+        }
+    }
+    parent.addView(seek,LinearLayout.LayoutParams(-1,dp(52)))
 }
 fun Context.toggle(parent:LinearLayout,title:String,value:Boolean,change:(Boolean)->Unit):Switch {
     val s=Switch(this).apply{text=title;setTextColor(Theme.ink);textSize=13f;isChecked=value;minHeight=dp(48);setOnCheckedChangeListener{_,checked->change(checked)}}

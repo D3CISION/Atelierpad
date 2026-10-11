@@ -24,9 +24,10 @@ object ExportGeometry {
 }
 object FloodFill {
     /** Returns an opaque/transparent region mask. Work is iterative and bounded by pixel count. */
-    fun mask(source:IntArray,width:Int,height:Int,x:Int,y:Int,tolerance:Int):BooleanArray {
+    fun mask(source:IntArray,width:Int,height:Int,x:Int,y:Int,tolerance:Int,allowed:BooleanArray?=null):BooleanArray {
         require(width>0 && height>0 && width.toLong()*height==source.size.toLong())
         require(x in 0 until width && y in 0 until height && tolerance in 0..255)
+        require(allowed==null || allowed.size==source.size)
         val target=source[y*width+x]
         val seen=BooleanArray(source.size); val result=BooleanArray(source.size)
         val queue=IntArray(source.size); var head=0; var tail=0
@@ -37,7 +38,7 @@ object FloodFill {
             return abs(ca-ta)<=tolerance && abs(((c ushr 16)and 255)-((target ushr 16)and 255))<=tolerance &&
                 abs(((c ushr 8)and 255)-((target ushr 8)and 255))<=tolerance && abs((c and 255)-(target and 255))<=tolerance
         }
-        fun push(i:Int) { if(!seen[i]) { seen[i]=true; if(matches(source[i])) { result[i]=true; queue[tail++]=i } } }
+        fun push(i:Int) { if(!seen[i]) { seen[i]=true; if((allowed==null || allowed[i]) && matches(source[i])) { result[i]=true; queue[tail++]=i } } }
         push(y*width+x)
         while(head<tail) {
             val i=queue[head++]; val xx=i%width
