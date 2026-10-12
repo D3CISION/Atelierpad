@@ -1,9 +1,9 @@
 # Development APK signing and safe installation
 
-## Default in 0.4: side-by-side
+## Default in 0.5: side-by-side
 
 The workflow and build helper scripts default to a separate app:
-`hu.atelierpad.app.preview04`, displayed as **Atelier Pad 0.4**, versionCode=4.
+`hu.atelierpad.app.preview05`, displayed as **Atelier Pad 0.5**, versionCode=4.
 This avoids overwriting an installed 0.1/0.2 (`hu.atelierpad.app`). It does not
 share that app's private gallery. It also leaves the 0.3 preview03 app untouched. Transfer art via externally exported .atelier files.
 No private signing key is included in this source archive.
@@ -15,8 +15,8 @@ The workflow's `install_mode: update`, or a direct Gradle build without
 installation when the signing certificate is compatible. Raising versionCode
 does not fix a signing mismatch. A new key cannot recover a lost original key.
 
-All subsequent builds of the separate 0.4 app ALSO need the same key to update
-that 0.4 installation. Side-by-side is not a permanent signing-key solution.
+All subsequent builds of the separate 0.5 app ALSO need the same key to update
+that 0.5 installation. Side-by-side is not a permanent signing-key solution.
 Never uninstall a drawing app without checked external .atelier backups.
 The file format stays at v3, compatible with 0.3. Keep original v1/v2 exports for 0.1/0.2.
 

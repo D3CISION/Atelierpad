@@ -1,3 +1,20 @@
+# 0.5.0-alpha
+
+- Left vertical icon-free size/opacity controls with rounded light thumb, finger/stylus input,
+  numeric bubble, long-press exact entry, keyboard and accessibility range actions.
+- Outlined-square eyedropper between sliders; Undo/Redo below; Project bottom left.
+- Tools (wrench) and Effects (wand) beside Gallery on the top left.
+- Smooth hue ring + saturation/value disc with both markers; fixed non-scrolling color panel,
+  no brightness slider or picker, two rows of recent colors.
+- White normalized brush/eraser previews on dark tiles. No duplicate size/opacity controls.
+- Compact, icon-only selection tools; no select-all/clear. Copy/cut/deselect retained.
+- Active-layer/selection hue, saturation, brightness, contrast and alpha-aware Gaussian-style
+  blur with asynchronous preview, hold-for-before, explicit Apply/Cancel and one-step undo.
+- Effects use existing v3 image operations, not persistent adjustment layers. Four-MP bound.
+- Gallery, layer drag reorder, PDF and all v3 project functionality retained. Version 5,
+  optional side-by-side package hu.atelierpad.app.preview05.
+- 138 core tests and 49 XML/static resource checks. Full Android build/device tests pending.
+
 # Changes
 
 ## 0.4.0-alpha

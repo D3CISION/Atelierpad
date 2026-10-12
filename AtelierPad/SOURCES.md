@@ -1,39 +1,20 @@
-# Implementation references
+# Technical references and scope
 
-Primary platform documentation consulted; these are not bundled libraries.
-The toolbar vector paths are hand-authored; no Procreate artwork, brush assets
-or proprietary application code is included.
+Current change set checked against primary documentation (2026-10-12):
 
-- Android MotionEvent (historical input, pressure, event timestamps):
-  https://developer.android.com/reference/android/view/MotionEvent
-- Android stylus input:
-  https://developer.android.com/develop/ui/views/touch-and-input/stylus-input/advanced-stylus-features
-- Android View (unbuffered dispatch, frame invalidation):
-  https://developer.android.com/reference/android/view/View
-- Android Canvas / Path / BlendMode:
-  https://developer.android.com/reference/android/graphics/Canvas
-  https://developer.android.com/reference/android/graphics/Path
-  https://developer.android.com/reference/android/graphics/BlendMode
-- Android PDF output:
-  https://developer.android.com/reference/android/graphics/pdf/PdfDocument
-- Android application signing / debug keys:
-  https://developer.android.com/studio/publish/app-signing
-- GitHub workflow syntax and secrets:
-  https://docs.github.com/en/actions/writing-workflows/workflow-syntax-for-github-actions
-  https://docs.github.com/en/actions/security-for-github-actions/security-guides/using-secrets-in-github-actions
+- Android custom View drawing/input:
+  https://developer.android.com/develop/ui/views/layout/custom-views/custom-components
+- Accessible ranges and ACTION_SET_PROGRESS:
+  https://developer.android.com/reference/android/view/accessibility/AccessibilityNodeInfo
+- Color matrix / hue rotation definition (W3C Filter Effects):
+  https://www.w3.org/TR/filter-effects-1/#feColorMatrixElement
 
-Additional references for 0.3:
-- Android ViewGroup touch ownership and requestDisallowInterceptTouchEvent:
-  https://developer.android.com/develop/ui/views/touch-and-input/gestures/viewgroup
-- Native SeekBar input and accessibility:
-  https://developer.android.com/reference/android/widget/SeekBar
+UI references: the two images supplied by the user in this conversation. They guided the left
+rail arrangement and the hue-ring/SV-disc design. No screenshot/Procreate asset is bundled;
+controls, vector glyphs and color wheel are implemented in this project.
 
-Additional primary references for 0.4:
-- Android native view drag/drop and local-state ownership:
-  https://developer.android.com/develop/ui/views/touch-and-input/drag-drop/view
-- Android AtomicFile recovery and replacement:
-  https://developer.android.com/reference/android/util/AtomicFile
-- Android circular hue rendering / SweepGradient:
-  https://developer.android.com/reference/android/graphics/SweepGradient
-- Android native dialog behavior:
-  https://developer.android.com/develop/ui/views/components/dialogs
+The color wheel uses an elliptical-grid square/disc map and cached HSV-derived pixels.
+The blur is a three-box Gaussian approximation, premultiplied before filtering, with clamped
+edges. This is a CPU approximation, not a physical paint engine or a GPU effect backend.
+All behavior claims must be interpreted with tests/VERIFICATION.md; Android execution and
+Focus Pen latency have not been validated in this environment.
