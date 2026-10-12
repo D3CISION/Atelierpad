@@ -1,7 +1,16 @@
-name: Android alpha APK
+name: Atelier Pad 0.5 APK
 
 on:
   workflow_dispatch:
+    inputs:
+      install_mode:
+        description: 'side-by-side keeps the old app; update requires the same signing key'
+        type: choice
+        required: true
+        default: side-by-side
+        options:
+          - side-by-side
+          - update
   push:
     branches: [main]
 
@@ -12,6 +21,8 @@ jobs:
   build:
     runs-on: ubuntu-24.04
     timeout-minutes: 25
+    env:
+      ATELIER_PARALLEL: ${{ github.event_name != 'workflow_dispatch' || inputs.install_mode == 'side-by-side' }}
     steps:
       - uses: actions/checkout@v6
 
@@ -33,24 +44,69 @@ jobs:
       - name: Locate Gradle project
         shell: bash
         run: |
+          set -euo pipefail
           if [[ -f settings.gradle.kts || -f settings.gradle ]]; then
             echo "GRADLE_DIR=." >> "$GITHUB_ENV"
           elif [[ -f AtelierPad/settings.gradle.kts || -f AtelierPad/settings.gradle ]]; then
             echo "GRADLE_DIR=AtelierPad" >> "$GITHUB_ENV"
           else
-            echo "::error::Could not find the Android Gradle project."
-            find . -maxdepth 3 -name 'settings.gradle*' -print
+            echo "::error::Could not find settings.gradle.kts. Keep the ZIP folder layout."
+            find . -maxdepth 4 -name 'settings.gradle*' -print
             exit 1
           fi
 
-      - name: Compile app, run unit tests, compile device tests
-        run: gradle --no-daemon -p "$GRADLE_DIR" :app:testDebugUnitTest :app:assembleDebug :app:assembleDebugAndroidTest
+      - name: Restore optional stable debug signing key
+        shell: bash
+        env:
+          ATELIER_DEBUG_KEYSTORE_BASE64: ${{ secrets.ATELIER_DEBUG_KEYSTORE_BASE64 }}
+        run: |
+          set -euo pipefail
+          if [[ -n "$ATELIER_DEBUG_KEYSTORE_BASE64" ]]; then
+            mkdir -p "$HOME/.android"
+            umask 077
+            printf '%s' "$ATELIER_DEBUG_KEYSTORE_BASE64" | base64 --decode > "$HOME/.android/debug.keystore"
+            keytool -list -keystore "$HOME/.android/debug.keystore" -storepass android -alias androiddebugkey > /dev/null
+          else
+            echo "::warning::No stable signing key is configured. A later build may not update this APK in place. Back up drawings before any uninstall."
+          fi
 
-      - name: Upload debug APK and JVM test results
+      - name: Check UI resource references
+        run: python3 "$GRADLE_DIR/tools/check-ui.py"
+
+      - name: Compile app, run unit tests, compile device tests
+        run: >-
+          gradle --no-daemon -p "$GRADLE_DIR"
+          -PatelierSideBySide="$ATELIER_PARALLEL"
+          :app:testDebugUnitTest :app:assembleDebug :app:assembleDebugAndroidTest
+
+      - name: Record install mode
+        shell: bash
+        run: |
+          {
+            echo "Atelier Pad 0.5.0-alpha"
+            echo "Commit: $GITHUB_SHA"
+            echo "Side-by-side install: $ATELIER_PARALLEL"
+            echo "Source: $GRADLE_DIR"
+            echo "Device tests are compiled, not executed by this workflow."
+            echo "The side-by-side app uses its own gallery. Import external .atelier files."
+          } > BUILD_INFO.txt
+          cat BUILD_INFO.txt >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload unit test reports, including failures
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: AtelierPad-debug
+          name: AtelierPad-0.5-test-reports
+          path: |
+            **/app/build/reports/tests/testDebugUnitTest/
+            **/app/build/test-results/testDebugUnitTest/
+          if-no-files-found: ignore
+
+      - name: Upload debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: AtelierPad-0.5-debug
           path: |
             **/app/build/outputs/apk/debug/app-debug.apk
-            **/app/build/reports/tests/testDebugUnitTest/
+            BUILD_INFO.txt
           if-no-files-found: error
