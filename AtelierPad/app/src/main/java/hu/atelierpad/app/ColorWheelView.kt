@@ -4,74 +4,117 @@ import android.content.Context
 import android.graphics.*
 import android.view.MotionEvent
 import android.view.View
-import hu.atelierpad.core.ColorWheelGeometry
-import kotlin.math.min
+import hu.atelierpad.core.StudioColorGeometry
+import kotlin.math.*
 
-/** A finger/pen driven hue-saturation disc. Value is adjusted by the slider below it. */
+/** Independent hue ring and SV disc. The gesture stays in its initial region until lift. */
 class ColorWheelView(
     context: Context, initial: Int,
     private val changed: (Int) -> Unit,
     private val committed: (Int) -> Unit
 ) : View(context) {
-    private val hsv = FloatArray(3).also { Color.colorToHSV(initial, it) }
-    private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
-    private var hueShader: Shader? = null
-    private var saturationShader: Shader? = null
-    private var radius = 1f
+    private val hsv = FloatArray(3).also { Color.colorToHSV(initial, it); if (it[1] == 0f) it[0] = 330f }
+    private val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
+    private var ring: Shader? = null
+    private var disc: Bitmap? = null
+    private var discHue = Float.NaN
+    private var radius = 1f; private var innerRadius = .7f
     private var cx = 0f; private var cy = 0f
     private var pointer = -1
-    private var initialColor = initial
+    private var region = 0 // 1: ring; 2: disc
+    private var initialHSV = hsv.copyOf()
+    private val resolution = 256
+    private val saturation = FloatArray(resolution * resolution)
+    private val value = FloatArray(resolution * resolution)
+    private val coverage = IntArray(resolution * resolution)
+    private val pixels = IntArray(resolution * resolution)
     val selectedColor get() = Color.HSVToColor(hsv)
     val brightness get() = hsv[2]
-    init { isFocusable = true; contentDescription = "Color wheel: hue and saturation" }
-    fun setColor(color: Int) { Color.colorToHSV(color, hsv); invalidate() }
-    fun setBrightness(value: Float) { hsv[2] = value.coerceIn(0f, 1f); changed(selectedColor); invalidate() }
+    init {
+        isFocusable = true; contentDescription = "Color wheel: outer hue ring, inner saturation and brightness disc"
+        val r = (resolution - 2) / 2f
+        for (y in 0 until resolution) for (x in 0 until resolution) {
+            val dx = x + .5f - resolution / 2f; val dy = y + .5f - resolution / 2f
+            val index = y * resolution + x
+            val sv = StudioColorGeometry.svAt(dx, dy, r)
+            saturation[index] = sv.saturation; value[index] = sv.value
+            coverage[index] = ((r + .5f - hypot(dx, dy)).coerceIn(0f, 1f) * 255).roundToInt()
+        }
+    }
+    fun setColor(color: Int) {
+        val next = FloatArray(3); Color.colorToHSV(color, next)
+        if (next[1] > .0001f) hsv[0] = next[0]
+        hsv[1] = next[1]; hsv[2] = next[2]; invalidate()
+    }
+    // Programmatic accessibility/testing API. There is no separate brightness slider in the UI.
+    fun setBrightness(value: Float) { if (!value.isFinite()) return; hsv[2] = value.coerceIn(0f, 1f); changed(selectedColor); invalidate() }
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         cx = w / 2f; cy = h / 2f
-        radius = (min(w, h) / 2f - context.dp(14)).coerceAtLeast(1f)
-        val colors = intArrayOf(Color.RED, Color.YELLOW, Color.GREEN, Color.CYAN, Color.BLUE, Color.MAGENTA, Color.RED)
-        hueShader = SweepGradient(cx, cy, colors, null)
-        saturationShader = RadialGradient(cx, cy, radius, Color.WHITE, Color.TRANSPARENT, Shader.TileMode.CLAMP)
+        radius = (min(w, h) / 2f - context.dp(12)).coerceAtLeast(1f); innerRadius = radius * .73f
+        val colors = IntArray(13) { i -> Color.HSVToColor(floatArrayOf(((330f - i * 30f) + 360f) % 360f, 1f, 1f)) }
+        ring = SweepGradient(cx, cy, colors, null)
+    }
+    private fun discBitmap(): Bitmap {
+        val image = disc ?: Bitmap.createBitmap(resolution, resolution, Bitmap.Config.ARGB_8888).also { disc = it }
+        if (discHue != hsv[0]) {
+            val full = Color.HSVToColor(floatArrayOf(hsv[0], 1f, 1f))
+            val red = Color.red(full) - 255f; val green = Color.green(full) - 255f; val blue = Color.blue(full) - 255f
+            for (i in pixels.indices) {
+                val s = saturation[i]; val v = value[i]
+                pixels[i] = (coverage[i] shl 24) or (((255f + red * s) * v).roundToInt() shl 16) or
+                    (((255f + green * s) * v).roundToInt() shl 8) or ((255f + blue * s) * v).roundToInt()
+            }
+            image.setPixels(pixels, 0, resolution, 0, 0, resolution, resolution); discHue = hsv[0]
+        }
+        return image
     }
     override fun onDraw(canvas: Canvas) {
-        paint.style = Paint.Style.FILL; paint.alpha = 255
-        paint.shader = hueShader; canvas.drawCircle(cx, cy, radius, paint)
-        paint.shader = saturationShader; canvas.drawCircle(cx, cy, radius, paint)
-        paint.shader = null; paint.color = Color.BLACK; paint.alpha = ((1f - hsv[2]) * 255).toInt()
-        canvas.drawCircle(cx, cy, radius, paint)
-        paint.alpha = 255; paint.style = Paint.Style.STROKE
-        paint.color = 0x44ffffff; paint.strokeWidth = context.dp(1).toFloat()
-        canvas.drawCircle(cx, cy, radius, paint)
-        val (x, y) = ColorWheelGeometry.point(hsv[0], hsv[1], radius)
-        paint.color = Color.BLACK; paint.strokeWidth = context.dp(4).toFloat()
-        canvas.drawCircle(cx + x, cy + y, context.dp(8).toFloat(), paint)
-        paint.color = Color.WHITE; paint.strokeWidth = context.dp(2).toFloat()
-        canvas.drawCircle(cx + x, cy + y, context.dp(8).toFloat(), paint)
+        paint.alpha = 255; paint.style = Paint.Style.STROKE; paint.shader = ring; paint.strokeWidth = radius * .17f
+        canvas.drawCircle(cx, cy, radius * .905f, paint)
+        paint.style = Paint.Style.FILL; paint.shader = null
+        canvas.drawBitmap(discBitmap(), null, RectF(cx - innerRadius, cy - innerRadius, cx + innerRadius, cy + innerRadius), paint)
+        fun marker(point: Pair<Float, Float>, r: Float) {
+            paint.style = Paint.Style.STROKE; paint.color = 0xaa000000.toInt(); paint.strokeWidth = context.dp(3).toFloat()
+            canvas.drawCircle(cx + point.first, cy + point.second, r, paint)
+            paint.color = Color.WHITE; paint.strokeWidth = context.dp(1).toFloat()
+            canvas.drawCircle(cx + point.first, cy + point.second, r, paint)
+        }
+        marker(StudioColorGeometry.huePoint(hsv[0], radius * .905f), min(context.dp(9).toFloat(), radius * .085f))
+        marker(StudioColorGeometry.svPoint(hsv[1], hsv[2], innerRadius * (resolution - 2f) / resolution), context.dp(6).toFloat())
     }
-    private fun update(e: MotionEvent, index: Int) {
-        val polar = ColorWheelGeometry.at(e.getX(index) - cx, e.getY(index) - cy, radius, hsv[0])
-        hsv[0] = polar.hue; hsv[1] = polar.saturation
+    private fun update(event: MotionEvent, index: Int) {
+        val x = event.getX(index) - cx; val y = event.getY(index) - cy
+        if (region == 1) hsv[0] = StudioColorGeometry.hueAt(x, y, hsv[0])
+        else {
+            val sv = StudioColorGeometry.svAt(x, y, innerRadius * (resolution - 2f) / resolution)
+            hsv[1] = sv.saturation; hsv[2] = sv.value
+        }
         changed(selectedColor); invalidate()
     }
-    override fun onTouchEvent(e: MotionEvent): Boolean {
-        when (e.actionMasked) {
+    override fun onTouchEvent(event: MotionEvent): Boolean {
+        if (!isEnabled) return false
+        when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
-                pointer = e.getPointerId(0); initialColor = selectedColor
-                parent?.requestDisallowInterceptTouchEvent(true); update(e, 0)
+                val distance = hypot(event.x - cx, event.y - cy)
+                if (distance > radius + context.dp(6)) return false
+                region = if (distance <= innerRadius + radius * .025f) 2 else 1
+                pointer = event.getPointerId(0); initialHSV = hsv.copyOf()
+                parent?.requestDisallowInterceptTouchEvent(true); update(event, 0)
             }
-            MotionEvent.ACTION_MOVE -> e.findPointerIndex(pointer).takeIf { it >= 0 }?.let { update(e, it) }
-            MotionEvent.ACTION_UP, MotionEvent.ACTION_POINTER_UP -> if (e.getPointerId(e.actionIndex) == pointer) {
-                update(e, e.actionIndex); committed(selectedColor); pointer = -1
+            MotionEvent.ACTION_MOVE -> if (pointer >= 0) event.findPointerIndex(pointer).takeIf { it >= 0 }?.let { update(event, it) }
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_POINTER_UP -> if (event.getPointerId(event.actionIndex) == pointer) {
+                update(event, event.actionIndex); committed(selectedColor); pointer = -1
                 parent?.requestDisallowInterceptTouchEvent(false); performClick()
             }
             MotionEvent.ACTION_CANCEL -> {
-                pointer = -1; setColor(initialColor); changed(initialColor)
-                parent?.requestDisallowInterceptTouchEvent(false)
+                if (pointer >= 0) { initialHSV.copyInto(hsv); changed(selectedColor); invalidate() }
+                pointer = -1; parent?.requestDisallowInterceptTouchEvent(false)
             }
         }
         return true
     }
     override fun performClick(): Boolean { super.performClick(); return true }
+    override fun onDetachedFromWindow() { disc = null; discHue = Float.NaN; super.onDetachedFromWindow() }
 }
 
 /** A visible 28dp swatch within a 48dp touch target, not a text/HEX field. */

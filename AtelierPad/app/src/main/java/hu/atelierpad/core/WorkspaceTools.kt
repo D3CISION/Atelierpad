@@ -16,7 +16,7 @@ object RecentColors {
         .map { it or 0xff000000.toInt() }.distinct().take(LIMIT)
 }
 
-/** Geometry shared by the circular HSV picker and its JVM tests. Red is at 3 o'clock. */
+/** Legacy v0.4 geometry retained for regression vectors. The v0.5 picker uses StudioColorGeometry. */
 object ColorWheelGeometry {
     data class Polar(val hue: Float, val saturation: Float)
     fun at(x: Float, y: Float, radius: Float, previousHue: Float): Polar {

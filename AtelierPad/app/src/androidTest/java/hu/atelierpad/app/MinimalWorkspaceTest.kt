@@ -31,7 +31,8 @@ class MinimalWorkspaceTest {
             val wheel = ColorWheelView(context, Color.RED, {}, { committed++ })
             FrameLayout(context).addView(wheel); wheel.layout(0, 0, 400, 400)
             touch(wheel, MotionEvent.ACTION_DOWN, 200f, 200f)
-            assertEquals(Color.WHITE, wheel.selectedColor)
+            val hsv = FloatArray(3); Color.colorToHSV(wheel.selectedColor, hsv)
+            assertEquals(.5f, hsv[1], .01f); assertEquals(.5f, hsv[2], .01f)
             touch(wheel, MotionEvent.ACTION_MOVE, 230f, 200f)
             assertEquals(0, committed)
             touch(wheel, MotionEvent.ACTION_UP, 230f, 200f)
@@ -121,7 +122,7 @@ class MinimalWorkspaceTest {
             instrumentation.runOnMainSync {
                 val nodes = views(activity.window.decorView)
                 assertTrue(nodes.filterIsInstance<TextView>().any { it.text.toString() == "Projects" })
-                assertTrue(nodes.filterIsInstance<TextView>().any { it.text.toString().contains("build 4") })
+                assertTrue(nodes.filterIsInstance<TextView>().any { it.text.toString().contains("build 5") })
                 assertTrue(nodes.none { it is DrawingView })
             }
         } finally { instrumentation.runOnMainSync { activity.finish() } }
@@ -141,7 +142,7 @@ class MinimalWorkspaceTest {
                 assertTrue(names.indexOf("Eraser") < names.indexOf("Layers"))
                 assertTrue(top.getChildAt(top.childCount - 1) is ColorSwatchView)
                 val texts = nodes.filterIsInstance<TextView>().map { it.text.toString() }
-                assertFalse(texts.any { it.contains("ILLUSTRATION STUDIO") || it.contains("build 4") })
+                assertFalse(texts.any { it.contains("ILLUSTRATION STUDIO") || it.contains("build 5") })
                 val show = MainActivity::class.java.getDeclaredMethod("showPanel", String::class.java).apply { isAccessible = true }
                 show.invoke(activity, "color")
                 val popup = views(activity.window.decorView)

@@ -104,19 +104,19 @@ fun Context.edit(text:String,hint:String="")=EditText(this).apply {
     setText(text);this.hint=hint;setTextColor(Theme.ink);setHintTextColor(Theme.muted);textSize=15f;isSingleLine=true
     backgroundTintList=ColorStateList.valueOf(Theme.accent);minHeight=dp(48)
 }
-class BrushPreview(context:Context,private val assets:AssetStore,private val brush:()->Brush,private val color:()->Int):View(context) {
+class BrushPreview(context:Context,private val assets:AssetStore,private val brush:()->Brush):View(context) {
     private var bitmap:Bitmap?=null
     private var cachedBrush:Brush?=null
     private var cachedColor=0
     private val paint=Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
     override fun onDraw(canvas:Canvas) {
         if(width<=0 || height<=0)return
-        val spec=brush().copy(size=min(brush().size,context.dp(28).toFloat()))
-        val ink=color()
+        val spec=brush().copy(size=min(height*.5f,context.dp(26).toFloat()).coerceIn(1f,240f),opacity=1f)
+        val ink=Color.WHITE
         var image=bitmap
         if(image==null || image.width!=width || image.height!=height || spec!=cachedBrush || ink!=cachedColor) {
             image=Bitmap.createBitmap(width,height,Bitmap.Config.ARGB_8888)
-            val target=Canvas(image);target.drawColor(Color.rgb(239,237,230))
+            val target=Canvas(image) // Transparent bitmap over the dark brush tile; stroke is always white.
             val points=(0..90).map {i->val t=i/90f;Sample(width*(.08f+t*.84f),height*(.5f+sin(t*PI*2).toFloat()*.18f),.10f+.90f*sin(t*PI).toFloat(),i*5L)}
             val op=Operation.Stroke(brush=spec,color=ink,eraser=false,alphaLock=false,mirrored=false,seed=7,samples=points)
             RasterRenderer(assets).use{it.renderOperation(target,Project(width=width,height=height),op)}

@@ -4,13 +4,13 @@ android {
     namespace = "hu.atelierpad.app"
     compileSdk = 35
     defaultConfig {
-        applicationId = if (sideBySide) "hu.atelierpad.app.preview04" else "hu.atelierpad.app"
-        resValue("string", "app_name", if (sideBySide) "Atelier Pad 0.4" else "Atelier Pad")
-        resValue("string", "build_label", "0.4.0-alpha / build 4")
+        applicationId = if (sideBySide) "hu.atelierpad.app.preview05" else "hu.atelierpad.app"
+        resValue("string", "app_name", if (sideBySide) "Atelier Pad 0.5" else "Atelier Pad")
+        resValue("string", "build_label", "0.5.0-alpha / build 5")
         minSdk = 29
         targetSdk = 35
-        versionCode = 4
-        versionName = "0.4.0-alpha"
+        versionCode = 5
+        versionName = "0.5.0-alpha"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }

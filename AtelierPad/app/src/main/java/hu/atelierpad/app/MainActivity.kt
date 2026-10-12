@@ -35,7 +35,6 @@ class MainActivity : Activity() {
     private var panelKind: String? = null
     private var colorSwatch: ColorSwatchView? = null
     private var colorWheel: ColorWheelView? = null
-    private var colorBrightnessEdited = false
     private var recentContainer: LinearLayout? = null
     private var currentColor = Color.rgb(33, 39, 47)
     private var recentColors = emptyList<Int>()
@@ -58,10 +57,15 @@ class MainActivity : Activity() {
     private val unsavedRecoveries = LinkedHashMap<String, Project>() // UI-thread only; failed saves stay recoverable in this session.
     private val debounce = Runnable { if (hasOpenProject) queueSave(p) }
     private val toolButtons = HashMap<Tool, ImageButton>()
-    private var sizeControl: SeekBar? = null
-    private var opacityControl: SeekBar? = null
-    private var sizeValue: TextView? = null
-    private var opacityValue: TextView? = null
+    private var sizeControl: VerticalSliderView? = null
+    private var opacityControl: VerticalSliderView? = null
+    private var controlRail: LinearLayout? = null
+    private var railValue: TextView? = null
+    private var activeSlider: VerticalSliderView? = null
+    private var pickerButton: ImageButton? = null
+    private var undoButton: ImageButton? = null
+    private var redoButton: ImageButton? = null
+    private var effectEditor: EffectsEditorView? = null
     private var paintBrush = Brush()
     private var eraserBrush = Brush("Studio eraser", size = 35f, hardness = 1f, smoothing = .25f)
 
@@ -105,6 +109,8 @@ class MainActivity : Activity() {
         val root = column().apply { setBackgroundColor(Theme.bg) }
         val top = row().apply { setPadding(dp(8), dp(4), dp(8), dp(4)) }
         top.addView(iconButton(R.drawable.ic_gallery, "Home / projects") { showHome() }, LinearLayout.LayoutParams(dp(48), dp(48)))
+        top.addView(iconButton(R.drawable.ic_tools, "Tools") { togglePanel("tools") }, LinearLayout.LayoutParams(dp(48), dp(48)))
+        top.addView(iconButton(R.drawable.ic_effects, "Effects") { togglePanel("effects") }, LinearLayout.LayoutParams(dp(48), dp(48)))
         top.addView(View(this), LinearLayout.LayoutParams(0, 1, 1f))
         toolButtons.clear()
         fun tool(icon: Int, name: String, kind: Tool, click: () -> Unit) {
@@ -138,81 +144,91 @@ class MainActivity : Activity() {
         canvas.showGrid = prefs.getBoolean("grid", false); canvas.mirrorView = prefs.getBoolean("mirrorView", false)
         canvas.grayscaleView = prefs.getBoolean("grayscaleView", false)
         workspace.addView(canvas, FrameLayout.LayoutParams(-1, -1))
-        overlayHost = FrameLayout(this).apply { visibility = View.GONE }
+        addControlRail()
+        overlayHost = FrameLayout(this).apply { visibility = View.GONE; elevation = dp(16).toFloat() }
         workspace.addView(overlayHost, FrameLayout.LayoutParams(-1, -1))
         canvas.onBrushChanged = { syncQuickControls() }
         canvas.onSelectionChanged = { if (panelKind == "select") refreshPanel() }
         root.addView(workspace, LinearLayout.LayoutParams(-1, 0, 1f))
-        addFooter(root)
         saveState = label("Saved locally", 11f, Theme.muted) // Status is exposed inside Project, not a permanent footer banner.
         installContent(root); updateTools(); syncQuickControls()
         if (viewport != null) { val drawing = canvas; drawing.post { drawing.restoreViewport(viewport) } }
         referenceBitmap?.let { showReference(it) }
         overlayHost.bringToFront()
     }
-    private fun addFooter(root: LinearLayout) {
-        val footer = column().apply { setPadding(dp(8), dp(4), dp(8), dp(6)) }
-        val menu = row()
-        menu.addView(iconButton(R.drawable.ic_project, "Project") { togglePanel("project") }, LinearLayout.LayoutParams(dp(48), dp(48)))
-        menu.addView(iconButton(R.drawable.ic_more, "Tools / fill / canvas options") { togglePanel("tools") }, LinearLayout.LayoutParams(dp(48), dp(48)))
-        val undoRedo = row()
-        undoRedo.addView(iconButton(R.drawable.ic_undo, "Undo") { undo() }, LinearLayout.LayoutParams(dp(48), dp(48)))
-        undoRedo.addView(iconButton(R.drawable.ic_redo, "Redo") { redo() }, LinearLayout.LayoutParams(dp(48), dp(48)))
-        val quick = createQuickControls()
-        val bottom = row()
-        if (resources.configuration.screenWidthDp < 600) {
-            footer.addView(quick, LinearLayout.LayoutParams(-1, dp(52)))
-            bottom.addView(menu); bottom.addView(View(this), LinearLayout.LayoutParams(0, 1, 1f)); bottom.addView(undoRedo)
-        } else {
-            bottom.addView(menu); bottom.addView(quick, LinearLayout.LayoutParams(0, dp(52), 1f)); bottom.addView(undoRedo)
+    private fun addControlRail() {
+        val rail = column().apply {
+            setPadding(dp(2), dp(8), dp(2), dp(8)); clipChildren = false
+            background = rounded(0xe51d1d22.toInt(), dp(16).toFloat(), 0x223f3f49)
+            elevation = dp(4).toFloat()
         }
-        footer.addView(bottom, LinearLayout.LayoutParams(-1, dp(52)))
-        root.addView(footer, LinearLayout.LayoutParams(-1, -2))
+        controlRail = rail
+        fun slider(title: String, format: (Int) -> String, update: (Int) -> Unit, exact: () -> Unit): VerticalSliderView {
+            return VerticalSliderView(this, title).apply {
+                formatValue = format
+                changed = { value -> update(value); updateRailValue(this) }
+                tracking = { active ->
+                    activeSlider = if (active) this else null
+                    if (active) updateRailValue(this) else railValue?.visibility = View.GONE
+                }
+                exactValue = exact
+            }
+        }
+        sizeControl = slider("Brush size", { "${SliderScale.sizeAt(it).roundToInt()} px" },
+            { canvas.brush = canvas.brush.copy(size = SliderScale.sizeAt(it)) },
+            { numberDialog("Brush size (px)", 1f, 240f, canvas.brush.size) { canvas.brush = canvas.brush.copy(size = it) } })
+        rail.addView(sizeControl, LinearLayout.LayoutParams(-1, 0, 1f))
+        pickerButton = iconButton(R.drawable.ic_picker_switch, "Eyedropper") {
+            closePanel(); selectTool(if (canvas.tool == Tool.PICKER) Tool.BRUSH else Tool.PICKER, false)
+        }
+        rail.addView(pickerButton, LinearLayout.LayoutParams(-1, dp(48)))
+        opacityControl = slider("Stroke opacity", { "${(SliderScale.opacityAt(it)*100).roundToInt()}%" },
+            { canvas.brush = canvas.brush.copy(opacity = SliderScale.opacityAt(it)) },
+            { numberDialog("Stroke opacity (%)", 1f, 100f, canvas.brush.opacity*100) { canvas.brush = canvas.brush.copy(opacity = it/100) } })
+        rail.addView(opacityControl, LinearLayout.LayoutParams(-1, 0, 1f))
+        rail.gap(4)
+        undoButton = iconButton(R.drawable.ic_undo, "Undo") { undo() }
+        redoButton = iconButton(R.drawable.ic_redo, "Redo") { redo() }
+        rail.addView(undoButton, LinearLayout.LayoutParams(-1, dp(48)))
+        rail.addView(redoButton, LinearLayout.LayoutParams(-1, dp(48)))
+        val params = FrameLayout.LayoutParams(dp(56), dp((resources.configuration.screenHeightDp-180).coerceIn(220,520)), Gravity.LEFT or Gravity.CENTER_VERTICAL)
+        params.setMargins(dp(10), dp(8), 0, dp(68)); workspace.addView(rail, params)
+        workspace.addOnLayoutChangeListener { _, _, top, _, bottom, _, _, _, _ ->
+            val targetHeight = (bottom-top-dp(92)).coerceIn(dp(180),dp(520))
+            if (rail.layoutParams.height != targetHeight) { rail.layoutParams = (rail.layoutParams as FrameLayout.LayoutParams).apply { height = targetHeight } }
+        }
+        val project = iconButton(R.drawable.ic_project, "Project") { togglePanel("project") }.apply {
+            background = rounded(0xe51d1d22.toInt(),dp(14).toFloat())
+        }
+        workspace.addView(project, FrameLayout.LayoutParams(dp(52),dp(48),Gravity.LEFT or Gravity.BOTTOM).apply { setMargins(dp(12),0,0,dp(10)) })
+        railValue = label("", 13f).apply {
+            gravity = Gravity.CENTER; background = rounded(0xee303037.toInt(), dp(10).toFloat())
+            visibility = View.GONE; importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+        }
+        workspace.addView(railValue,FrameLayout.LayoutParams(dp(80),dp(40),Gravity.TOP or Gravity.LEFT).apply { leftMargin=dp(74) })
     }
-    private fun createQuickControls(): LinearLayout {
-        val row = row()
-        fun seek(description: String, change: (Int) -> Unit) = TouchSeekBar(this).apply {
-            max = 1000; contentDescription = description
-            progressTintList = android.content.res.ColorStateList.valueOf(Theme.accent)
-            thumbTintList = android.content.res.ColorStateList.valueOf(Theme.accent)
-            setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
-                override fun onProgressChanged(s: SeekBar?, value: Int, fromUser: Boolean) { if (fromUser) change(value) }
-                override fun onStartTrackingTouch(s: SeekBar?) {} // In-flight pen strokes keep their initial settings.
-                override fun onStopTrackingTouch(s: SeekBar?) { if (panelKind == "brush") refreshPanel() }
-            })
+    private fun updateRailValue(slider: VerticalSliderView) {
+        if (activeSlider != slider) return
+        railValue?.apply {
+            text = slider.formatValue(slider.progress)
+            val y = ((controlRail?.top ?: 0) + slider.top + slider.thumbY - dp(20)).roundToInt()
+            layoutParams = (layoutParams as FrameLayout.LayoutParams).apply { topMargin = y.coerceIn(0,(workspace.height-dp(40)).coerceAtLeast(0)) }
+            visibility = View.VISIBLE
         }
-        val size = row(); val opacity = row()
-        size.addView(iconButton(R.drawable.ic_size, "Brush size") { showPanel("brush") }, LinearLayout.LayoutParams(dp(48), dp(48)))
-        sizeValue = label("", 11f, Theme.muted).apply { gravity = Gravity.CENTER }
-        size.addView(sizeValue, LinearLayout.LayoutParams(dp(48), dp(48)))
-        sizeControl = seek("Brush size") { canvas.brush = canvas.brush.copy(size = SliderScale.sizeAt(it)); preview?.invalidate() }
-        size.addView(sizeControl, LinearLayout.LayoutParams(0, dp(52), 1f))
-        opacity.addView(iconButton(R.drawable.ic_opacity, "Stroke opacity") { showPanel("brush") }, LinearLayout.LayoutParams(dp(48), dp(48)))
-        opacityValue = label("", 11f, Theme.muted).apply { gravity = Gravity.CENTER }
-        opacity.addView(opacityValue, LinearLayout.LayoutParams(dp(48), dp(48)))
-        opacityControl = seek("Stroke opacity") { canvas.brush = canvas.brush.copy(opacity = SliderScale.opacityAt(it)); preview?.invalidate() }
-        opacity.addView(opacityControl, LinearLayout.LayoutParams(0, dp(52), 1f))
-        row.addView(size, LinearLayout.LayoutParams(0, -1, 1f)); row.addView(opacity, LinearLayout.LayoutParams(0, -1, 1f))
-        sizeValue?.apply {
-            contentDescription = "Enter brush size"; isFocusable = true
-            setOnClickListener { numberDialog("Brush size (px)", 1f, 240f, canvas.brush.size) { v -> canvas.brush = canvas.brush.copy(size = v); preview?.invalidate() } }
-        }
-        opacityValue?.apply {
-            contentDescription = "Enter stroke opacity"; isFocusable = true
-            setOnClickListener { numberDialog("Stroke opacity (%)", 1f, 100f, canvas.brush.opacity * 100) { v -> canvas.brush = canvas.brush.copy(opacity = v / 100); preview?.invalidate() } }
-        }
-        return row
     }
     private fun syncQuickControls() {
         if (!::canvas.isInitialized) return
         val brush = canvas.brush
         if (canvas.tool == Tool.ERASER) eraserBrush = brush else paintBrush = brush
         sizeControl?.progress = SliderScale.sizeProgress(brush.size); opacityControl?.progress = SliderScale.opacityProgress(brush.opacity)
-        sizeValue?.text = brush.size.roundToInt().toString(); opacityValue?.text = "${(brush.opacity * 100).roundToInt()}%"
+        activeSlider?.let { updateRailValue(it) }
     }
     private fun updateTools() {
         if (!::canvas.isInitialized) return
         toolButtons.forEach { (tool, button) -> styleIcon(button, canvas.tool == tool) }
+        pickerButton?.let { styleIcon(it, canvas.tool == Tool.PICKER) }
+        undoButton?.apply { isEnabled = history.canUndo; alpha = if (isEnabled) 1f else .35f }
+        redoButton?.apply { isEnabled = history.canRedo; alpha = if (isEnabled) 1f else .35f }
         canvas.invalidate()
     }
     private fun selectTool(tool: Tool, refresh: Boolean = true) {
@@ -228,40 +244,57 @@ class MainActivity : Activity() {
         canvas.finishStroke(); closePanel(); panelKind = kind; refreshPanel()
     }
     private fun closePanel() {
-        if (panelKind == "color" && colorBrightnessEdited) rememberColor(currentColor)
-        panelKind = null; colorBrightnessEdited = false; colorWheel = null; recentContainer = null; preview = null
+        effectEditor?.release(); effectEditor = null
+        panelKind = null; colorWheel = null; recentContainer = null; preview = null
         if (::overlayHost.isInitialized) { overlayHost.removeAllViews(); overlayHost.visibility = View.GONE }
     }
     private fun refreshPanel() {
         val kind = panelKind ?: return
         if (homeMode || !::overlayHost.isInitialized) return
+        effectEditor?.release(); effectEditor = null
         preview = null; colorWheel = null; recentContainer = null
         overlayHost.removeAllViews(); overlayHost.visibility = View.VISIBLE
-        val scrim = View(this).apply { setBackgroundColor(if(kind=="color")0x44000000 else 0x66000000); isClickable = true; setOnClickListener { closePanel() } }
+        val scrim = View(this).apply { setBackgroundColor(if(kind=="color")0x33000000 else 0x55000000); isClickable = true; setOnClickListener { closePanel() } }
         overlayHost.addView(scrim, FrameLayout.LayoutParams(-1, -1))
         val card = column(16).apply {
-            isClickable = true; background = rounded(if(kind=="color")0xb8212125.toInt() else 0xec222225.toInt(), dp(20).toFloat(), Theme.line)
+            isClickable = true; background = rounded(if(kind=="color")0xbe212125.toInt() else 0xee222225.toInt(), dp(20).toFloat(), Theme.line)
             elevation = dp(12).toFloat()
         }
-        val header = row()
-        val title = when (kind) { "brush" -> if (canvas.tool == Tool.ERASER) "Eraser" else "Brushes"; "color" -> "Color"; "select" -> "Selection"; "layers" -> "Layers"; "project" -> "Project"; else -> "Tools" }
-        header.addView(label(title, 15f).apply { typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER_VERTICAL }, LinearLayout.LayoutParams(0, dp(48), 1f))
-        header.addView(iconButton(R.drawable.ic_close, "Close $title") { closePanel() }, LinearLayout.LayoutParams(dp(48), dp(48)))
-        card.addView(header); card.gap(8)
-        val availableWidth = if (workspace.width > 0) workspace.width else resources.displayMetrics.widthPixels
-        val availableHeight = if (workspace.height > 0) workspace.height else dp((resources.configuration.screenHeightDp - 170).coerceAtLeast(240))
-        val preferredHeight = when (kind) { "color" -> 530; "project" -> 510; "layers" -> 600; else -> 620 }
-        val width = min(dp(if (kind == "color") 336 else 380), availableWidth - dp(24)).coerceAtLeast(dp(220))
-        val height = min(dp(preferredHeight), availableHeight - dp(24)).coerceAtLeast(dp(160))
-        val content = column()
-        if (kind == "layers") {
-            card.addView(content, LinearLayout.LayoutParams(-1, 0, 1f)); layerPanel(content)
-        } else {
-            val scroll = ScrollView(this).apply { isVerticalScrollBarEnabled = false; addView(content) }
-            card.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
-            when (kind) { "brush" -> brushPanel(content); "color" -> colorPanel(content); "select" -> selectionPanel(content); "project" -> projectPanel(content); else -> toolsPanel(content) }
+        val title = when (kind) {
+            "brush" -> if (canvas.tool == Tool.ERASER) "Eraser" else "Brushes"
+            "color" -> "Color"; "select" -> "Selection"; "layers" -> "Layers"; "project" -> "Project"
+            "effects" -> "Effects"; "effect-hsv" -> "Hue / saturation"; "effect-tone" -> "Brightness / contrast"
+            "effect-blur" -> "Gaussian blur"; else -> "Tools"
         }
-        val gravity = if (kind == "tools" || kind == "project") Gravity.BOTTOM or Gravity.LEFT else Gravity.TOP or Gravity.RIGHT
+        if (kind != "select") {
+            val header = row()
+            header.addView(label(title, 15f).apply { typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER_VERTICAL }, LinearLayout.LayoutParams(0, dp(48), 1f))
+            header.addView(iconButton(R.drawable.ic_close, "Close $title") { closePanel() }, LinearLayout.LayoutParams(dp(48), dp(48)))
+            card.addView(header); card.gap(8)
+        }
+        val availableWidth = if (workspace.width > 0) workspace.width else resources.displayMetrics.widthPixels
+        val availableHeight = if (workspace.height > 0) workspace.height else dp((resources.configuration.screenHeightDp - 90).coerceAtLeast(240))
+        val preferredHeight = when (kind) { "color" -> 548; "select" -> 144; "effects" -> 326; "project" -> 510; "layers" -> 600; else -> 600 }
+        val preferredWidth = when(kind) { "color" -> 352; "select" -> 280; else -> 380 }
+        val width = min(dp(preferredWidth), availableWidth - dp(24)).coerceAtLeast(dp(220))
+        val height = min(dp(preferredHeight), availableHeight - dp(24)).coerceAtLeast(dp(140))
+        val content = column()
+        when {
+            kind == "layers" -> { card.addView(content, LinearLayout.LayoutParams(-1, 0, 1f)); layerPanel(content) }
+            kind == "color" -> { card.addView(content, LinearLayout.LayoutParams(-1, 0, 1f)); colorPanel(content) }
+            kind == "select" -> { card.addView(content, LinearLayout.LayoutParams(-1, 0, 1f)); selectionPanel(content) }
+            kind.startsWith("effect-") -> {
+                val snapshot = p; val selection = canvas.activeSelection()
+                effectEditor = EffectsEditorView(this, assets, snapshot, selection, kind, { closePanel() }, { settings -> applyEffect(snapshot, selection, settings) })
+                card.addView(effectEditor, LinearLayout.LayoutParams(-1, 0, 1f))
+            }
+            else -> {
+                val scroll = ScrollView(this).apply { isVerticalScrollBarEnabled = false; addView(content) }
+                card.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
+                when (kind) { "brush" -> brushPanel(content); "project" -> projectPanel(content); "effects" -> effectsPanel(content); else -> toolsPanel(content) }
+            }
+        }
+        val gravity = when { kind == "project" -> Gravity.BOTTOM or Gravity.LEFT; kind == "tools" || kind == "effects" || kind.startsWith("effect-") -> Gravity.TOP or Gravity.LEFT; else -> Gravity.TOP or Gravity.RIGHT }
         overlayHost.addView(card, FrameLayout.LayoutParams(width, height, gravity).apply { setMargins(dp(12), dp(12), dp(12), dp(12)) })
     }
     private fun menuAction(parent: LinearLayout, icon: Int, text: String, action: () -> Unit) {
@@ -299,37 +332,35 @@ class MainActivity : Activity() {
         toggle(c, "Transparent background", p.transparent) { applyProject(p.copy(transparent = it), "Canvas background") }
     }
     private fun brushPanel(c: LinearLayout) {
-        preview = BrushPreview(this, assets, { canvas.brush }, { canvas.color })
-        c.addView(preview, LinearLayout.LayoutParams(-1, dp(72))); c.gap(12)
-        menuAction(c, R.drawable.ic_settings, "Brush settings") { closePanel(); brushStudio() }
-        slider(c, "Size", 1f, 240f, canvas.brush.size, { "${it.roundToInt()} px" }) { canvas.brush = canvas.brush.copy(size = it); preview?.invalidate() }
-        slider(c, "Opacity", .01f, 1f, canvas.brush.opacity, { "${(it * 100).roundToInt()}%" }) { canvas.brush = canvas.brush.copy(opacity = it); preview?.invalidate() }
-        c.section("Brushes")
+        preview = BrushPreview(this, assets, { canvas.brush })
+        c.addView(preview, LinearLayout.LayoutParams(-1, dp(64))); c.gap(12)
+        menuAction(c, R.drawable.ic_settings, if(canvas.tool == Tool.ERASER) "Eraser settings" else "Brush settings") { closePanel(); brushStudio() }
+        c.gap(4)
         (Brush.presets() + customBrushes).forEach { brush ->
             val tile = column(10).apply {
                 background = rounded(if (canvas.brush.name == brush.name) Theme.selected else Theme.card, dp(10).toFloat())
                 isClickable = true; isFocusable = true; contentDescription = "Choose ${brush.name}"
                 setOnClickListener {
-                    canvas.finishStroke(); canvas.brush = brush
-                    if (canvas.tool == Tool.ERASER) eraserBrush = brush else paintBrush = brush
+                    canvas.finishStroke()
+                    canvas.brush = brush.copy(size=canvas.brush.size, opacity=canvas.brush.opacity)
+                    if (canvas.tool == Tool.ERASER) eraserBrush = canvas.brush else paintBrush = canvas.brush
                     closePanel(); updateTools()
                 }
             }
             tile.addView(label(brush.name, 12f)); tile.gap(7)
-            tile.addView(BrushPreview(this, assets, { brush }, { canvas.color }), LinearLayout.LayoutParams(-1, dp(36)))
+            tile.addView(BrushPreview(this, assets, { brush }), LinearLayout.LayoutParams(-1, dp(40)))
             c.addView(tile); c.gap(8)
         }
     }
     private fun colorPanel(c: LinearLayout) {
         val wheel = ColorWheelView(this, currentColor, { setColor(it, false) }, { rememberColor(it) })
         colorWheel = wheel
-        c.addView(wheel, LinearLayout.LayoutParams(-1, dp(256)))
-        slider(c, "Brightness", 0f, 1f, wheel.brightness, { "${(it * 100).roundToInt()}%" }) { colorBrightnessEdited = true; wheel.setBrightness(it) }
-        c.gap(8)
-        recentContainer = column(); c.addView(recentContainer)
+        c.addView(wheel, LinearLayout.LayoutParams(-1, 0, 1f))
+        c.gap(12)
+        recentContainer = column()
+        // Reserved height prevents the wheel from jumping when the first/7th recent color is added.
+        c.addView(recentContainer, LinearLayout.LayoutParams(-1, dp(96)))
         renderRecentColors()
-        c.gap(8)
-        menuAction(c, R.drawable.ic_picker, "Eyedropper") { selectTool(Tool.PICKER, false); closePanel() }
     }
     private fun setColor(value: Int, updateWheel: Boolean = true) {
         currentColor = value or 0xff000000.toInt()
@@ -345,9 +376,7 @@ class MainActivity : Activity() {
     private fun renderRecentColors() {
         val host = recentContainer ?: return
         host.removeAllViews()
-        if (recentColors.isEmpty()) {
-            host.addView(label("Recently used colors will appear here", 11f, Theme.muted)); return
-        }
+        if (recentColors.isEmpty()) return
         recentColors.chunked(6).forEach { colors ->
             val line = row()
             colors.forEach { color ->
@@ -375,44 +404,59 @@ class MainActivity : Activity() {
             { doc -> if (!homeMode && doc.id == p.id && doc != p) applyProject(doc, "Reorder layers") })
         c.addView(stack, LinearLayout.LayoutParams(-1, 0, 1f))
     }
-    private fun selectionPanel(c:LinearLayout) {
-        c.section("Selection")
-        c.addView(label("Draw the selection with the pen. Choose Brush to paint inside it. The boundary belongs to the active layer.",12f,Theme.muted));c.gap(12)
-        listOf(Triple(SelectionMode.LASSO,R.drawable.ic_select,"Freehand lasso"),
-            Triple(SelectionMode.RECTANGLE,R.drawable.ic_rectangle,"Rectangle"),
-            Triple(SelectionMode.ELLIPSE,R.drawable.ic_ellipse,"Ellipse")).forEach {(mode,icon,name)->
-            val row=row()
-            row.addView(iconButton(icon,name,canvas.selectionMode==mode && canvas.tool==Tool.SELECT) {
-                canvas.selectionMode=mode;selectTool(Tool.SELECT,false);closePanel()
-            },LinearLayout.LayoutParams(dp(48),dp(48)))
-            row.addView(button(name) {canvas.selectionMode=mode;selectTool(Tool.SELECT,false);closePanel()},LinearLayout.LayoutParams(0,dp(48),1f))
-            c.addView(row);c.gap(6)
+    private fun selectionPanel(c: LinearLayout) {
+        val modes = row()
+        listOf(Triple(SelectionMode.LASSO, R.drawable.ic_select, "Freehand lasso"),
+            Triple(SelectionMode.RECTANGLE, R.drawable.ic_rectangle, "Rectangle selection"),
+            Triple(SelectionMode.ELLIPSE, R.drawable.ic_ellipse, "Ellipse selection")).forEach { (mode, icon, title) ->
+            modes.addView(iconButton(icon, title, canvas.selectionMode == mode && canvas.tool == Tool.SELECT) {
+                canvas.selectionMode = mode; selectTool(Tool.SELECT, false); closePanel()
+            }, LinearLayout.LayoutParams(0, dp(48), 1f))
         }
-        val selected=canvas.activeSelection()
-        c.section(if(selected==null)"No active selection" else if(selected.inverted)"Outside boundary selected" else "Inside boundary selected")
-        c.gap(8);c.addView(button("Select all") {canvas.finishStroke();canvas.setSelection(Selection.rectangle(0f,0f,p.width.toFloat(),p.height.toFloat()))})
-        c.gap(8);c.addView(button("Invert selection") {canvas.finishStroke();canvas.activeSelection()?.let {canvas.setSelection(it.copy(inverted=!it.inverted))}}.apply {isEnabled=selected!=null})
-        c.gap(8);c.addView(button("Deselect") {canvas.finishStroke();canvas.clearSelection()}.apply {isEnabled=selected!=null})
-        c.gap(10)
-        fun action(icon:Int,title:String,block:()->Unit) {
-            val r=row();r.addView(iconButton(icon,title,action=block),LinearLayout.LayoutParams(dp(48),dp(48)))
-            r.addView(button(title,action=block),LinearLayout.LayoutParams(0,dp(48),1f))
-            r.isEnabled=selected!=null
-            for(i in 0 until r.childCount)r.getChildAt(i).isEnabled=selected!=null
-            c.addView(r);c.gap(6)
+        modes.addView(iconButton(R.drawable.ic_close, "Close selection") { closePanel() }, LinearLayout.LayoutParams(dp(48), dp(48)))
+        c.addView(modes); c.gap(12)
+        val actions = row(); val selected = canvas.activeSelection()
+        fun action(icon: Int, title: String, selectedIcon: Boolean = false, block: () -> Unit) {
+            val button = iconButton(icon, title, selectedIcon, block).apply { isEnabled = selected != null; alpha = if(isEnabled)1f else .35f }
+            actions.addView(button, LinearLayout.LayoutParams(0, dp(48), 1f))
         }
-        action(R.drawable.ic_copy,"Copy to new layer") {extractSelection(false)}
-        action(R.drawable.ic_cut,"Cut to new layer") {extractSelection(true)}
-        action(R.drawable.ic_trash,"Clear selected pixels") {clearSelectedPixels()}
-        c.gap(8);c.addView(button("Back to brush",true) {selectTool(Tool.BRUSH);closePanel()})
-        c.gap(10);c.addView(label("Copy/cut uses the active layer, not the merged picture. Clear and cut respect layer lock and alpha lock. Use Layer settings to move or transform the extracted layer. Selection borders are temporary; paint restrictions are saved in the project.",12f,Theme.muted))
+        action(R.drawable.ic_invert, "Invert selection", selected?.inverted == true) {
+            canvas.finishStroke(); canvas.activeSelection()?.let { canvas.setSelection(it.copy(inverted = !it.inverted)) }
+        }
+        action(R.drawable.ic_deselect, "Deselect") { canvas.finishStroke(); canvas.clearSelection(); closePanel() }
+        action(R.drawable.ic_copy, "Copy to new layer") { extractSelection(false) }
+        action(R.drawable.ic_cut, "Cut to new layer") { extractSelection(true) }
+        c.addView(actions)
     }
-    private fun clearSelectedPixels() {
-        canvas.finishStroke()
-        val selected=canvas.activeSelection() ?: return
-        val layer=p.layers[p.active]
-        if(layer.locked || layer.alphaLock || !layer.visible) {message("Unlock the layer and disable alpha lock before clearing pixels.");return}
-        changeLayer(p.active,layer.copy(operations=layer.operations+Operation.Clear(selection=selected)),"Clear selection")
+    private fun effectsPanel(c: LinearLayout) {
+        fun open(kind: String) {
+            val layer = p.layers[p.active]
+            if (!layer.visible || layer.locked || layer.alphaLock) { message("Use a visible, unlocked layer. Turn off alpha lock for effects."); return }
+            if (p.width.toLong()*p.height > PixelEffects.MAX_PIXELS) { message("Effects currently support canvases up to 4,194,304 pixels."); return }
+            showPanel(kind)
+        }
+        menuAction(c, R.drawable.ic_color, "Hue / saturation") { open("effect-hsv") }
+        menuAction(c, R.drawable.ic_tone, "Brightness / contrast") { open("effect-tone") }
+        menuAction(c, R.drawable.ic_blur, "Gaussian blur") { open("effect-blur") }
+        c.gap(4); c.addView(label("Preview first. Apply makes one undoable edit to the active layer.", 11f, Theme.muted))
+    }
+    private fun applyEffect(snapshot: Project, selection: Selection?, settings: EffectSettings) {
+        if (snapshot != p || homeMode) { closePanel(); message("The project changed. Open the effect again."); return }
+        if (settings.isIdentity) return
+        closePanel(); busy("Applying effect...")
+        work({
+            RasterRenderer(assets).use { renderer ->
+                val image = renderer.layer(snapshot, snapshot.layers[snapshot.active])
+                val processed = EffectRaster.apply(image, settings, selection, snapshot.width, snapshot.height)
+                try { assets.store(processed) } finally { processed.recycle() }
+            }
+        }, { asset ->
+            if (!homeMode && p == snapshot) {
+                val next = EffectEdit.bake(snapshot, snapshot.layers[snapshot.active].id, asset)
+                applyProject(next, "Layer effect")
+            } else message("The project changed. Effect was not applied.")
+            busy(null)
+        })
     }
     private fun extractSelection(cut:Boolean) {
         canvas.finishStroke()
@@ -519,26 +563,24 @@ class MainActivity : Activity() {
     override fun onPause() {
         super.onPause()
         if (::canvas.isInitialized) { canvas.finishStroke(); saveWorkingBrushes() }
-        if (panelKind == "color" && colorBrightnessEdited) rememberColor(currentColor)
         prefs.edit().putInt("currentColor", currentColor).apply()
         handler.removeCallbacks(debounce); if (started && !loading && hasOpenProject) queueSave(p)
     }
     override fun onDestroy() {
-        handler.removeCallbacksAndMessages(null); galleryGeneration++
+        closePanel(); handler.removeCallbacksAndMessages(null); galleryGeneration++
         if (::canvas.isInitialized) canvas.release()
         referenceBitmap = null; files.executor.shutdown(); super.onDestroy()
     }
     private fun brushStudio() {
         canvas.finishStroke();var draft=canvas.brush
         val c=column(18);val name=edit(draft.name,"Brush name");c.addView(name)
-        val test=BrushPreview(this,assets,{draft},{canvas.color});c.addView(test,LinearLayout.LayoutParams(-1,dp(100)))
+        val test=BrushPreview(this,assets,{draft});c.addView(test,LinearLayout.LayoutParams(-1,dp(100)))
         fun refresh(){test.invalidate()}
         slider(c,"Hardness",0f,1f,draft.hardness){draft=draft.copy(hardness=it);refresh()}
         slider(c,"Stamp spacing",.025f,1.5f,draft.spacing,{String.format("%.2f",it)}){draft=draft.copy(spacing=it);refresh()}
         slider(c,"Texture grain",0f,1f,draft.texture){draft=draft.copy(texture=it);refresh()}
         slider(c,"Scatter",0f,1f,draft.scatter,{String.format("%.2f",it)}){draft=draft.copy(scatter=it);refresh()}
         slider(c,"Tip rotation",-180f,180f,draft.rotation){draft=draft.copy(rotation=it);refresh()}
-        slider(c,"Stroke opacity",.01f,1f,draft.opacity,{"${(it*100).roundToInt()}%"}){draft=draft.copy(opacity=it);refresh()}
         slider(c,"Paint flow",.01f,1f,draft.flow,{"${(it*100).roundToInt()}%"}){draft=draft.copy(flow=it);refresh()}
         slider(c,"Stabilization",0f,1f,draft.smoothing,{"${(it*100).roundToInt()}%"}){draft=draft.copy(smoothing=it);refresh()}
         c.section("Pressure response")
@@ -555,7 +597,7 @@ class MainActivity : Activity() {
             if(save) {customBrushes.add(draft);if(customBrushes.size>40)customBrushes.removeAt(0);saveBrushes()}
             refreshPanel()
         }
-        AlertDialog.Builder(this).setTitle("Brush Studio").setView(ScrollView(this).apply{addView(c)})
+        AlertDialog.Builder(this).setTitle(if(canvas.tool==Tool.ERASER)"Eraser settings" else "Brush settings").setView(ScrollView(this).apply{addView(c)})
             .setPositiveButton("Use brush"){_,_->applyBrush(false)}.setNeutralButton("Save preset"){_,_->applyBrush(true)}.setNegativeButton("Cancel",null).show()
     }
     private fun saveWorkingBrushes() {
@@ -667,7 +709,8 @@ class MainActivity : Activity() {
             canvas.renderer.close()
         }
         handler.removeCallbacks(debounce); closePanel(); homeMode = true
-        sizeControl = null; opacityControl = null; sizeValue = null; opacityValue = null; colorSwatch = null
+        sizeControl = null; opacityControl = null; controlRail = null; railValue = null; activeSlider = null; colorSwatch = null
+        pickerButton = null; undoButton = null; redoButton = null
         toolButtons.clear()
         val generation = ++galleryGeneration
         val root = column().apply { setPadding(dp(20), dp(12), dp(20), dp(10)) }
