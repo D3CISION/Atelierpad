@@ -99,5 +99,42 @@ PASS header reading does not require decoding operations or assets
 PASS header reader supports the previous v1 and v2 files
 PASS header reader rejects malformed or unsupported documents
 PASS header reader bounds canvas metadata before preview allocation
+PASS vertical slider grows upwards and clamps overshoot
+PASS vertical slider thumb position round-trips all progress values
+PASS vertical slider rejects nonfinite and empty tracks
+PASS vertical slider y clamps programmatic input
+PASS new hue ring has yellow at top and blue at bottom
+PASS new hue ring point round-trips every degree
+PASS hue ring center retains the previous hue
+PASS hue geometry validates finite values
+PASS SV disc center maps to half saturation and value
+PASS SV disc supports pure hue and pure white at the rim
+PASS SV disc black remains reachable at every saturation
+PASS SV disc round-trips the complete square without unreachable corners
+PASS SV disc outside drag clamps safely to the rim
+PASS SV disc rejects invalid geometry
+PASS effect identity preserves every bit and returns an independent array
+PASS effect processing does not mutate input
+PASS effect settings reject NaN and out-of-range values
+PASS effect dimensions and four megapixel bound are validated
+PASS desaturation produces neutral channels while preserving alpha
+PASS full positive brightness produces white
+PASS full negative brightness produces black
+PASS zero contrast produces midpoint grey
+PASS tone controls leave alpha untouched
+PASS hidden transparent RGB is cleared by a real effect
+PASS hue rotation changes chromatic input without changing alpha
+PASS hue rotation preserves neutral grey
+PASS Gaussian approximation preserves opaque constant colors
+PASS Gaussian approximation cannot bleed hidden red into visible white
+PASS transparent blur stays transparent
+PASS blur spreads an opaque spot symmetrically
+PASS blur accepts single pixel and single row dimensions
+PASS tiny blur does not roundtrip low-alpha RGB unnecessarily
+PASS effect bake preserves all layer metadata and project ordering
+PASS effect bake forms one undoable change without retaining preview edits
+PASS effect bake rejects locks and invalid target layer
+PASS effect bake validates content-addressed asset names
+PASS baked effects keep v3 project compatibility
 
-101 core tests passed; Android device/instrumentation tests are separate.
+138 core tests passed; Android device/instrumentation tests are separate.

@@ -376,6 +376,160 @@ fun runCoreRegression(fixture:(String)->ByteArray):Int {
         }
         fails{ProjectHeader.read(ByteArrayInputStream(b.toByteArray()))}
     }
+    test("vertical slider grows upwards and clamps overshoot") {
+        check(VerticalSliderGeometry.progress(10f,10f,210f)==1000)
+        check(VerticalSliderGeometry.progress(210f,10f,210f)==0)
+        check(VerticalSliderGeometry.progress(110f,10f,210f)==500)
+        check(VerticalSliderGeometry.progress(-100f,10f,210f)==1000)
+        check(VerticalSliderGeometry.progress(900f,10f,210f)==0)
+    }
+    test("vertical slider thumb position round-trips all progress values") {
+        for(i in 0..1000)check(VerticalSliderGeometry.progress(VerticalSliderGeometry.y(i,14f,400f),14f,400f)==i)
+    }
+    test("vertical slider rejects nonfinite and empty tracks") {
+        fails{VerticalSliderGeometry.progress(Float.NaN,0f,100f)}
+        fails{VerticalSliderGeometry.progress(1f,10f,10f)}
+        fails{VerticalSliderGeometry.y(1,0f,Float.POSITIVE_INFINITY)}
+    }
+    test("vertical slider y clamps programmatic input") {
+        check(VerticalSliderGeometry.y(-99,0f,100f)==100f);check(VerticalSliderGeometry.y(3000,0f,100f)==0f)
+    }
+    test("new hue ring has yellow at top and blue at bottom") {
+        check(abs(StudioColorGeometry.hueAt(0f,-100f,0f)-60f)<.001f)
+        check(abs(StudioColorGeometry.hueAt(0f,100f,0f)-240f)<.001f)
+    }
+    test("new hue ring point round-trips every degree") {
+        for(h in 0..359) {
+            val q=StudioColorGeometry.huePoint(h.toFloat(),80f)
+            val found=StudioColorGeometry.hueAt(q.first,q.second,0f)
+            val distance=abs(found-h)
+            check(min(distance,360f-distance)<.001f)
+        }
+    }
+    test("hue ring center retains the previous hue") {check(StudioColorGeometry.hueAt(0f,0f,277f)==277f)}
+    test("hue geometry validates finite values") {
+        fails{StudioColorGeometry.hueAt(Float.NaN,1f,0f)};fails{StudioColorGeometry.huePoint(1f,0f)}
+    }
+    test("SV disc center maps to half saturation and value") {check(StudioColorGeometry.svAt(0f,0f,100f)==StudioColorGeometry.SV(.5f,.5f))}
+    test("SV disc supports pure hue and pure white at the rim") {
+        for(s in listOf(0f,1f)) {
+            val point=StudioColorGeometry.svPoint(s,1f,100f)
+            val actual=StudioColorGeometry.svAt(point.first,point.second,100f)
+            check(abs(actual.saturation-s)<.0001f && abs(actual.value-1f)<.0001f)
+        }
+    }
+    test("SV disc black remains reachable at every saturation") {
+        for(i in 0..20) {
+            val pt=StudioColorGeometry.svPoint(i/20f,0f,100f)
+            check(StudioColorGeometry.svAt(pt.first,pt.second,100f).value<.0001f)
+        }
+    }
+    test("SV disc round-trips the complete square without unreachable corners") {
+        for(s in 0..40)for(v in 0..40) {
+            val point=StudioColorGeometry.svPoint(s/40f,v/40f,123f)
+            check(hypot(point.first,point.second)<=123.001f)
+            val sv=StudioColorGeometry.svAt(point.first,point.second,123f)
+            check(abs(sv.saturation-s/40f)<.0001f && abs(sv.value-v/40f)<.0001f)
+        }
+    }
+    test("SV disc outside drag clamps safely to the rim") {
+        val sv=StudioColorGeometry.svAt(2000f,-2000f,100f)
+        check(sv.saturation==1f && sv.value==1f)
+    }
+    test("SV disc rejects invalid geometry") {
+        fails{StudioColorGeometry.svAt(0f,0f,-1f)};fails{StudioColorGeometry.svPoint(Float.NaN,1f,100f)}
+    }
+    test("effect identity preserves every bit and returns an independent array") {
+        val a=intArrayOf(0x00881122,0xff123456.toInt(),0x7f009955,0)
+        val b=PixelEffects.process(a,2,2,EffectSettings())
+        check(a.contentEquals(b) && a!==b)
+    }
+    test("effect processing does not mutate input") {
+        val a=IntArray(100){0x80ff0000.toInt()};val copy=a.copyOf()
+        PixelEffects.process(a,10,10,EffectSettings(brightness=.2f,blurSigma=4f));check(a.contentEquals(copy))
+    }
+    test("effect settings reject NaN and out-of-range values") {
+        fails{EffectSettings(hue=181f).validate()};fails{EffectSettings(saturation=3f).validate()}
+        fails{EffectSettings(brightness=Float.NaN).validate()};fails{EffectSettings(contrast=-1f).validate()}
+        fails{EffectSettings(blurSigma=25f).validate()}
+    }
+    test("effect dimensions and four megapixel bound are validated") {
+        fails{PixelEffects.process(IntArray(4),3,3,EffectSettings())}
+        fails{PixelEffects.process(IntArray(1),0,1,EffectSettings())}
+        fails{PixelEffects.process(IntArray(1),4096,4096,EffectSettings())}
+    }
+    test("desaturation produces neutral channels while preserving alpha") {
+        val out=PixelEffects.process(intArrayOf(0x81ff2000.toInt()),1,1,EffectSettings(saturation=0f))[0]
+        check(out ushr 24==129);check(((out ushr 16) and 255)==((out ushr 8) and 255));check((out and 255)==((out ushr 8) and 255))
+    }
+    test("full positive brightness produces white") {check(PixelEffects.process(intArrayOf(0xff102030.toInt()),1,1,EffectSettings(brightness=1f))[0]==-1)}
+    test("full negative brightness produces black") {check(PixelEffects.process(intArrayOf(-1),1,1,EffectSettings(brightness=-1f))[0]==0xff000000.toInt())}
+    test("zero contrast produces midpoint grey") {check((PixelEffects.process(intArrayOf(0xff102030.toInt()),1,1,EffectSettings(contrast=0f))[0] and 0xffffff)==0x808080)}
+    test("tone controls leave alpha untouched") {
+        for(a in 1..255) {
+            val input=(a shl 24) or 0x8abf17
+            val out=PixelEffects.process(intArrayOf(input),1,1,EffectSettings(hue=90f,contrast=1.5f,brightness=.1f))[0]
+            check(out ushr 24==a)
+        }
+    }
+    test("hidden transparent RGB is cleared by a real effect") {check(PixelEffects.process(intArrayOf(0x00ff0000),1,1,EffectSettings(saturation=0f))[0]==0)}
+    test("hue rotation changes chromatic input without changing alpha") {
+        val out=PixelEffects.process(intArrayOf(0x80ff0000.toInt()),1,1,EffectSettings(hue=180f))[0]
+        check(out ushr 24==128);check(((out ushr 16) and 255)==0 && (out and 255)>50)
+    }
+    test("hue rotation preserves neutral grey") {
+        val out=PixelEffects.process(intArrayOf(0xff888888.toInt()),1,1,EffectSettings(hue=100f))[0]
+        check(out==0xff888888.toInt())
+    }
+    test("Gaussian approximation preserves opaque constant colors") {
+        val input=IntArray(70){0xff224466.toInt()}
+        check(PixelEffects.process(input,10,7,EffectSettings(blurSigma=12f)).contentEquals(input))
+    }
+    test("Gaussian approximation cannot bleed hidden red into visible white") {
+        val input=IntArray(81){0x00ff0000};input[40]=-1
+        val output=PixelEffects.process(input,9,9,EffectSettings(blurSigma=1f))
+        check(output.any{it ushr 24>0});output.filter{it ushr 24>0}.forEach {check((it and 0xffffff)==0xffffff)}
+    }
+    test("transparent blur stays transparent") {check(PixelEffects.process(IntArray(20),5,4,EffectSettings(blurSigma=24f)).all{it==0})}
+    test("blur spreads an opaque spot symmetrically") {
+        val input=IntArray(225);input[112]=0xff00ff00.toInt()
+        val out=PixelEffects.process(input,15,15,EffectSettings(blurSigma=1.5f))
+        check((out[112] ushr 24) in 1..254);check(out[111]==out[113]);check(out[97]==out[127]);check(out[111]==out[97])
+    }
+    test("blur accepts single pixel and single row dimensions") {
+        check(PixelEffects.process(intArrayOf(-1),1,1,EffectSettings(blurSigma=24f))[0]==-1)
+        check(PixelEffects.process(IntArray(20){-1},20,1,EffectSettings(blurSigma=5f)).all{it==-1})
+    }
+    test("tiny blur does not roundtrip low-alpha RGB unnecessarily") {
+        val input=intArrayOf(0x01123456)
+        check(PixelEffects.process(input,1,1,EffectSettings(blurSigma=.01f)).contentEquals(input))
+    }
+    test("effect bake preserves all layer metadata and project ordering") {
+        val layer=Layer(name="Ink",offsetX=23f,offsetY=-40f,rotation=27f,scale=.7f,mixing=Mixing.MULTIPLY,opacity=.6f,clipped=true,operations=listOf(stroke))
+        val project=Project(layers=listOf(Layer(),layer),active=1)
+        val changed=EffectEdit.bake(project,layer.id,"a".repeat(64))
+        check(changed.layers[0]==project.layers[0]);check(changed.active==1)
+        check(changed.layers[1].copy(operations=layer.operations)==layer);changed.validate()
+    }
+    test("effect bake forms one undoable change without retaining preview edits") {
+        val project=Project(layers=listOf(Layer(operations=listOf(stroke))))
+        val history=ProjectHistory(project);val changed=EffectEdit.bake(project,project.layers[0].id,"b".repeat(64))
+        history.commit(changed,"Layer effect");check(history.undo());check(history.current==project);check(!history.canUndo)
+        check(history.redo());check(history.current==changed)
+    }
+    test("effect bake rejects locks and invalid target layer") {
+        for(layer in listOf(Layer(locked=true),Layer(alphaLock=true),Layer(visible=false))) {
+            val project=Project(layers=listOf(layer));fails{EffectEdit.bake(project,layer.id,"a".repeat(64))}
+        }
+        fails{EffectEdit.bake(Project(),"missing","a".repeat(64))}
+    }
+    test("effect bake validates content-addressed asset names") {val project=Project();fails{EffectEdit.bake(project,project.layers[0].id,"bad.png")}}
+    test("baked effects keep v3 project compatibility") {
+        val project=Project();val bytes=byteArrayOf(1,7,6,4);val asset=ProjectArchive.hash(bytes)
+        val changed=EffectEdit.bake(project,project.layers[0].id,asset)
+        check(ProjectArchive.read(ByteArrayInputStream(archive(changed,mapOf(asset to bytes)))).project==changed)
+    }
+
     println("\n$passed core tests passed; Android device/instrumentation tests are separate.")
     return passed
 }

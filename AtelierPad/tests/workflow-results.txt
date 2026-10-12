@@ -1,2 +1,6 @@
-PASS: both workflow copies identical; YAML parsed; all inline Bash scripts pass bash -n; root/nested project fixtures pass; UI-check step and 0.4 names present.
-Not a GitHub-hosted build or authenticated repository modification.
+PASS: workflow YAML parses; all inline Bash scripts pass bash -n.
+PASS: root Gradle project discovery fixture.
+PASS: nested Gradle project discovery fixture.
+PASS: missing Gradle project discovery fixture.
+PASS: local build/test shell script syntax.
+COUNT: 50 Android instrumented test methods present; NOT executed here.

@@ -1,0 +1,1 @@
+PASS: 30 Kotlin files parsed by the Kotlin compiler PSI parser (syntax only, no Android API/type resolution).

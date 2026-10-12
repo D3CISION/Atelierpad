@@ -1,2 +1,3 @@
-PASS: 41 XML files parse; resource names resolve; requested toolbar order and removed labels checked; gallery is the startup screen.
+PASS: 49 XML files parse; resource names resolve; requested toolbar order and removed labels checked; gallery is the startup screen.
 Static checks only: Android resource linking, rendering and input still require an Android build/device.
+PASS: vertical icon-free sliders, top-left Tools/Effects, white brush previews, compact icon-only selection and non-scrolling Color content.

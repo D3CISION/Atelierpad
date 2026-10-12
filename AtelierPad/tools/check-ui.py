@@ -25,7 +25,22 @@ order = ['tool(R.drawable.ic_brush', 'tool(R.drawable.ic_select', 'tool(R.drawab
 assert [main.index(item) for item in order] == sorted(main.index(item) for item in order)
 startup = main[main.index('override fun onCreate'):main.index('private fun installContent')]
 assert 'showHome(false)' in startup and 'lastProject' not in startup
-assert 'versionCode = 4' in (root / 'app/build.gradle.kts').read_text()
-assert 'preview04' in (root / 'app/build.gradle.kts').read_text()
+assert 'versionCode = 5' in (root / 'app/build.gradle.kts').read_text()
+assert 'preview05' in (root / 'app/build.gradle.kts').read_text()
 print(f"PASS: {len(xml_files)} XML files parse; resource names resolve; requested toolbar order and removed labels checked; gallery is the startup screen.")
 print("Static checks only: Android resource linking, rendering and input still require an Android build/device.")
+
+# v0.5: no legacy horizontal quick bar or textual selection actions.
+assert 'addFooter(' not in main and 'createQuickControls' not in main
+assert 'VerticalSliderView' in main and 'ic_picker_switch' in main
+assert main.index('ic_gallery, "Home / projects"') < main.index('ic_tools, "Tools"') < main.index('ic_effects, "Effects"')
+selection = main[main.index('private fun selectionPanel'):main.index('private fun effectsPanel')]
+assert 'label(' not in selection and 'button(' not in selection and 'Select all' not in selection and 'Clear' not in selection
+assert 'ic_invert' in selection and 'ic_copy' in selection and 'ic_cut' in selection
+color = main[main.index('private fun colorPanel'):main.index('private fun setColor')]
+assert 'ScrollView' not in color and 'slider(' not in color and 'Eyedropper' not in color
+brush = main[main.index('private fun brushPanel'):main.index('private fun colorPanel')]
+assert 'slider(' not in brush and 'canvas.color' not in brush
+widgets = (root/'app/src/main/java/hu/atelierpad/app/Widgets.kt').read_text()
+assert 'val ink=Color.WHITE' in widgets and 'Color.rgb(239,237,230)' not in widgets
+print('PASS: vertical icon-free sliders, top-left Tools/Effects, white brush previews, compact icon-only selection and non-scrolling Color content.')
